@@ -487,6 +487,56 @@ static int __init init_sched_debug_procfs(void)
 
 __initcall(init_sched_debug_procfs);
 
+#define __P(F) \
+	SEQ_printf(m, "%-45s:%21Ld\n", #F, (long long)F)
+#define P(F) \
+	SEQ_printf(m, "%-45s:%21Ld\n", #F, (long long)p->F)
+#define __PN(F) \
+	SEQ_printf(m, "%-45s:%14Ld.%06ld\n", #F, SPLIT_NS((long long)F))
+#define PN(F) \
+	SEQ_printf(m, "%-45s:%14Ld.%06ld\n", #F, SPLIT_NS((long long)p->F))
+
+
+static void sched_show_numa(struct task_struct *p, struct seq_file *m)
+{
+#ifdef CONFIG_NUMA_BALANCING
+	struct mempolicy *pol;
+	int node, i;
+
+	if (p->mm)
+		P(mm->numa_scan_seq);
+
+	task_lock(p);
+	pol = p->mempolicy;
+	if (pol && !(pol->flags & MPOL_F_MORON))
+		pol = NULL;
+	mpol_get(pol);
+	task_unlock(p);
+
+	SEQ_printf(m, "numa_migrations, %ld\n", xchg(&p->numa_pages_migrated, 0));
+
+	for_each_online_node(node) {
+		for (i = 0; i < 2; i++) {
+			unsigned long nr_faults = -1;
+			int cpu_current, home_node;
+
+			if (p->numa_faults)
+				nr_faults = p->numa_faults[2*node + i];
+
+			cpu_current = !i ? (task_node(p) == node) :
+				(pol && node_isset(node, pol->v.nodes));
+
+			home_node = (p->numa_preferred_nid == node);
+
+			SEQ_printf(m, "numa_faults_memory, %d, %d, %d, %d, %ld\n",
+				i, node, cpu_current, home_node, nr_faults);
+		}
+	}
+
+	mpol_put(pol);
+#endif
+}
+
 void proc_sched_show_task(struct task_struct *p, struct seq_file *m)
 {
 	unsigned long nr_switches;

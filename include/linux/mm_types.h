@@ -14,6 +14,7 @@
 #include <linux/page-debug-flags.h>
 #include <linux/uprobes.h>
 #include <linux/page-flags-layout.h>
+#include <linux/workqueue.h>
 #include <asm/page.h>
 #include <asm/mmu.h>
 #include <htc_debug/stability/debug_page_user_trace.h>
@@ -477,6 +478,7 @@ struct mm_struct {
 	int app_setting;
 #endif
 
+	struct work_struct async_put_work;
 };
 
 static inline void mm_init_cpumask(struct mm_struct *mm)

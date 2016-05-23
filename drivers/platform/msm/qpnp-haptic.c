@@ -1363,6 +1363,7 @@ static ssize_t qpnp_hap_voltage_level_store(struct device *dev,
 
 	input = simple_strtoul(buf, NULL, 10);
 	hap->vmax_mv = input;
+	hap->short_vmax = input;
 
 	rc = qpnp_hap_vmax_config(hap);
 	if (rc < 0)
@@ -1792,6 +1793,12 @@ static void qpnp_hap_td_enable(struct timed_output_dev *dev, int value)
 			if((hap->last_set != current_set) || (hap->last_set == SPMI_WRITE_FAIL))
 				qpnp_hap_switch(current_set);
 		}
+
+		if (hap->vmax_mv == QPNP_HAP_VMAX_MIN_MV) {
+			spin_unlock(&hap->lock);
+			return;
+		}
+
 		hap->state = 1;
 		hrtimer_start(&hap->hap_timer,
 			      ktime_set(value / 1000, (value % 1000) * 1000000),

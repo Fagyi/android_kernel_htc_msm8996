@@ -372,7 +372,7 @@ static void virtual_key_lut_table_set(int *virtual_key_lut_table, int array_len,
 
 #define BUTTON_BLINK_SPEED_MAX	9
 
-static int bln_switch = 1;
+static int bln_switch = 0;
 static int bln_speed = 3;
 static int screen_on = 1;
 static int blinking = 0;

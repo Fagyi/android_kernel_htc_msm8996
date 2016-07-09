@@ -23,3 +23,5 @@ ifdef CONFIG_HTC_DEBUG_DSP
 CFLAGS_msm-compress-q6-v2.o :=-DDEBUG
 endif
 #HTC_AUD_END
+ccflags-y := -Os
+

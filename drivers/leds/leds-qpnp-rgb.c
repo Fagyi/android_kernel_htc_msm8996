@@ -391,6 +391,7 @@ static int bln_notif_once = 0; // determines if while blinking, restart or not b
 static int screen_on = 1;
 static int blinking = 0;
 struct qpnp_led_data *buttonled;
+static int charging = 0;
 
 
 static int qpnp_buttonled_blink_with_alarm(int on,int cancel_alarm);
@@ -495,7 +496,7 @@ static int qpnp_mpp_blink(struct qpnp_led_data *led, int blink_brightness, int c
 			int pause_hi = 20;
 			int pause_lo = (8600 - (900 * bln_speed)) + 200;
 
-			if (bln_number > 0) { // if blink number is not infinite, schedule work
+			if (bln_number > 0 && !charging) { // if blink number is not infinite and is not charging, schedule CANCEL work
 				if (!mutex_is_locked(&blinkstopworklock)) {
 					int sleeptime = ( ((VIRTUAL_RAMP_SETP_TIME_BLINK_SLOW * (VIRTUAL_LUT_LEN)) * 2) + pause_hi + pause_lo) * bln_number;
 
@@ -611,6 +612,15 @@ static int qpnp_buttonled_blink(int on)
 	return qpnp_buttonled_blink_with_alarm(on>0?10:0, 1);
 }
 
+// register charging: this symbol function will register charging events from anywhere in kernel calls
+// e.g. from USB ohio driver
+void register_charging(int on)
+{
+	LED_INFO("%s %d\n",__func__,on);
+	charging = on>0?1:0;
+}
+EXPORT_SYMBOL(register_charging);
+
 // handling haptic notifications if enabled to register notifications even when RGB led is already blinking, or on charger
 static unsigned long last_haptic_jiffies = 0;
 static unsigned int last_value = 0;
@@ -641,6 +651,12 @@ EXPORT_SYMBOL(register_haptic);
 
 #endif
 #ifndef CONFIG_LEDS_QPNP_BUTTON_BLINK
+void register_charging(int on)
+{
+	LED_INFO("%s %d\n",__func__,on);
+}
+EXPORT_SYMBOL(register_charging);
+
 void register_haptic(int value)
 {
 	LED_INFO("%s %d\n",__func__,value);

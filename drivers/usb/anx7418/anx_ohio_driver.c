@@ -1569,6 +1569,10 @@ static void drole_work_func(struct work_struct *work)
 		mutex_unlock(&td->drole_lock);
 }
 
+#if 1
+extern void register_charging(int on);
+#endif
+
 static void ohio_work_func(struct work_struct *work)
 {
 	struct ohio_data *td = container_of(work, struct ohio_data,
@@ -1578,6 +1582,9 @@ static void ohio_work_func(struct work_struct *work)
 	cable_connected = confirmed_cable_det(td);
 	pr_info("%s : detect cable insertion/remove, cable_connected = %d\n",
 				__func__, cable_connected);
+#if 1
+	register_charging(cable_connected);
+#endif
 	if (cable_connected == DONGLE_CABLE_INSERT) {
 		//wake_lock(&td->ohio_lock); // 2016/01/08, USB Team, PCN00055
 		mutex_lock(&td->lock);

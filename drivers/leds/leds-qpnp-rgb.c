@@ -3685,6 +3685,18 @@ static int fb_notifier_callback(struct notifier_block *self,
     int *blank;
 
     LED_DBG("%s\n", __func__);
+
+#ifdef CONFIG_LEDS_QPNP_BUTTON_BLINK
+    if (evdata && evdata->data && event == FB_EARLY_EVENT_BLANK && g_led_virtual) {
+        blank = evdata->data;
+        switch (*blank) {
+        case FB_BLANK_UNBLANK:
+		qpnp_buttonled_blink(0);
+		break;
+	}
+    }
+#endif
+
     if (evdata && evdata->data && event == FB_EVENT_BLANK && g_led_virtual) {
         blank = evdata->data;
         switch (*blank) {

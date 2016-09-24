@@ -2224,8 +2224,10 @@ static int dwc3_msm_suspend(struct dwc3_msm *mdwc)
 		dev_dbg(mdwc->dev, "defer suspend with %d(msecs)\n",
 					mdwc->lpm_to_suspend_delay);
 		pm_wakeup_event(mdwc->dev, mdwc->lpm_to_suspend_delay);
+#ifndef CONFIG_MACH_MSM8996_15801
 	} else {
 		pm_relax(mdwc->dev);
+#endif
 	}
 
 	atomic_set(&dwc->in_lpm, 1);
@@ -2265,7 +2267,9 @@ static int dwc3_msm_resume(struct dwc3_msm *mdwc)
 		return 0;
 	}
 
+#ifndef CONFIG_MACH_MSM8996_15801
 	pm_stay_awake(mdwc->dev);
+#endif
 
 	/* Vote for TCXO while waking up USB HSPHY */
 	if (!mdwc->xo_vote_for_charger) {
@@ -3563,7 +3567,9 @@ static int dwc3_msm_probe(struct platform_device *pdev)
 		register_cpu_notifier(&mdwc->dwc3_cpu_notifier);
 
 	device_init_wakeup(mdwc->dev, 1);
+#ifndef CONFIG_MACH_MSM8996_15801
 	pm_stay_awake(mdwc->dev);
+#endif
 
 	if (of_property_read_bool(node, "qcom,disable-dev-mode-pm"))
 		pm_runtime_get_noresume(mdwc->dev);
@@ -4516,8 +4522,9 @@ static void dwc3_msm_otg_sm_work(struct work_struct *w)
 				dwc3_msm_gadget_vbus_draw(mdwc,
 						dcp_max_current);
 				atomic_set(&dwc->in_lpm, 1);
-				dbg_event(0xFF, "RelaxDCP", 0);
+#ifndef CONFIG_MACH_MSM8996_15801
 				pm_relax(mdwc->dev);
+#endif
 				break;
 			case DWC3_CDP_CHARGER:
 			case DWC3_SDP_CHARGER:

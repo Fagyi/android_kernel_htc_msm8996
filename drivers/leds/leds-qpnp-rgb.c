@@ -2754,16 +2754,21 @@ static DEVICE_ATTR(bln_light_level, (S_IWUSR|S_IRUGO),
 
 #endif
 
+static struct lut_params multicolor_lut_params = {
+	.flags = QPNP_LED_PWM_FLAGS | PM_PWM_LUT_PAUSE_HI_EN,
+	.idx_len = SHORT_LUT_LEN,
+	.ramp_step_ms = 64,
+	.lut_pause_hi = 1792,
+	.lut_pause_lo = 0,
+};
+
 static int led_multicolor_short_blink(struct qpnp_led_data *led, int pwm_coefficient){
 	int rc = 0;
-	struct lut_params	lut_params;
+	struct lut_params	lut_params = multicolor_lut_params;
 	int *lut_short_blink;
 
-	lut_params.flags = QPNP_LED_PWM_FLAGS | PM_PWM_LUT_PAUSE_HI_EN;
-	lut_params.idx_len = SHORT_LUT_LEN;
-	lut_params.ramp_step_ms = 64;
-	lut_params.lut_pause_hi = 1792; // Pause time = (1792 / 64 + 1) * 64 = 1856
-	lut_params.lut_pause_lo = 0;
+	LED_INFO("%s, name:%s, brightness = %d status: %d\n", __func__, led->cdev.name, led->cdev.brightness, led->status);
+	LED_INFO("%s: ramp %d pause %d hi %d lo\n", __func__, lut_params.ramp_step_ms, lut_params.lut_pause_hi, lut_params.lut_pause_lo);
 
 	switch(led->id){
 		case QPNP_ID_RGB_RED:
@@ -3445,6 +3450,18 @@ static ssize_t led_multi_color_show(struct device *dev,
 	return sprintf(buf, "%x\n", ModeRGB);
 }
 
+static void update_ModeRGB(struct qpnp_led_data *led, uint32_t val)
+{
+	led->mode = (val & Mode_Mask) >> 24;
+	if(g_led_red)
+		g_led_red->rgb_cfg->pwm_cfg->pwm_coefficient= ((val & Red_Mask) >> 16) * indicator_pwm_ratio / 255;
+	if(g_led_green)
+		g_led_green->rgb_cfg->pwm_cfg->pwm_coefficient = ((val & Green_Mask) >> 8) * indicator_pwm_ratio / 255;
+	if(g_led_blue)
+		g_led_blue->rgb_cfg->pwm_cfg->pwm_coefficient = (val & Blue_Mask) * indicator_pwm_ratio / 255;
+	ModeRGB = val;
+}
+
 static ssize_t led_multi_color_store(struct device *dev,
 		struct device_attribute *attr,
 		const char *buf, size_t count)
@@ -3458,14 +3475,8 @@ static ssize_t led_multi_color_store(struct device *dev,
 		return -EINVAL;
 	led_cdev = (struct led_classdev *) dev_get_drvdata(dev);
 	led = container_of(led_cdev, struct qpnp_led_data, cdev);
-	led->mode = (val & Mode_Mask) >> 24;
-	if(g_led_red)
-		g_led_red->rgb_cfg->pwm_cfg->pwm_coefficient= ((val & Red_Mask) >> 16) * indicator_pwm_ratio / 255;
-	if(g_led_green)
-		g_led_green->rgb_cfg->pwm_cfg->pwm_coefficient = ((val & Green_Mask) >> 8) * indicator_pwm_ratio / 255;
-	if(g_led_blue)
-		g_led_blue->rgb_cfg->pwm_cfg->pwm_coefficient = (val & Blue_Mask) * indicator_pwm_ratio / 255;
-	ModeRGB = val;
+
+	update_ModeRGB(led, val);
 	LED_INFO(" %s , ModeRGB = %x\n" , __func__, val);
 #ifdef CONFIG_LEDS_QPNP_BUTTON_BLINK
 	// we suppose charging if it's coloring led in CONSTANT light and RED (mode val = 1 and only red or only full green (100%) is enabled)
@@ -3486,6 +3497,38 @@ static ssize_t led_multi_color_store(struct device *dev,
 
 static DEVICE_ATTR(ModeRGB, 0644, led_multi_color_show,
 		led_multi_color_store);
+
+static ssize_t led_multi_color_mode_and_lut_params_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%x %d %d %d\n", ModeRGB, multicolor_lut_params.ramp_step_ms, multicolor_lut_params.lut_pause_hi, multicolor_lut_params.lut_pause_lo);
+}
+
+static ssize_t led_multi_color_mode_and_lut_params_store(struct device *dev,
+		struct device_attribute *attr,
+		const char *buf, size_t count)
+{
+	struct led_classdev *led_cdev = (struct led_classdev *) dev_get_drvdata(dev);
+	struct qpnp_led_data *led = container_of(led_cdev, struct qpnp_led_data, cdev);
+	uint32_t new_ModeRGB;
+	uint32_t ramp_step_ms, lut_pause_hi, lut_pause_lo;
+
+	if (sscanf(buf, "%x %u %u %u", &new_ModeRGB, &ramp_step_ms, &lut_pause_hi, &lut_pause_lo) != 4) {
+		return -EINVAL;
+	}
+
+	update_ModeRGB(led, new_ModeRGB);
+	multicolor_lut_params.ramp_step_ms = ramp_step_ms;
+	multicolor_lut_params.lut_pause_hi = lut_pause_hi;
+	multicolor_lut_params.lut_pause_lo = lut_pause_lo;
+
+	queue_work(g_led_on_work_queue, &led->led_multicolor_work);
+
+	return count;
+}
+
+static DEVICE_ATTR(mode_and_lut_params, 0644, led_multi_color_mode_and_lut_params_show,
+		led_multi_color_mode_and_lut_params_store);
 
 static ssize_t led_mpp_current_store(struct device *dev,
 		struct device_attribute *attr,
@@ -4017,6 +4060,10 @@ static int qpnp_leds_probe(struct spmi_device *spmi)
 			rc = device_create_file(led->cdev.dev, &dev_attr_ModeRGB);
 			if (rc < 0) {
 				LED_ERR("%s: Failed to create %s attr ModeRGB\n", __func__,  led->cdev.name);
+			}
+			rc = device_create_file(led->cdev.dev, &dev_attr_mode_and_lut_params);
+			if (rc < 0) {
+				LED_ERR("%s: Failed to create %s attr mode_and_lut_params\n", __func__,  led->cdev.name);
 			}
 		}else{
 			/* configure default state */

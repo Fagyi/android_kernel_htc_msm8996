@@ -82,6 +82,7 @@ struct sugov_cpu {
 };
 
 static DEFINE_PER_CPU(struct sugov_cpu, sugov_cpu);
+static DEFINE_PER_CPU(struct sugov_tunables, cached_tunables);
 
 /************************ Governor internals ***********************/
 
@@ -663,6 +664,53 @@ static void sugov_tunables_free(struct sugov_tunables *tunables)
 	kfree(tunables);
 }
 
+static void store_tunables_data(struct sugov_tunables *tunables,
+		struct cpufreq_policy *policy)
+{
+	struct sugov_tunables *ptunables;
+	unsigned int cpu = cpumask_first(policy->related_cpus);
+
+	ptunables = &per_cpu(cached_tunables, cpu);
+	if (!ptunables)
+		return;
+	ptunables->up_rate_limit_us = tunables->up_rate_limit_us;
+	ptunables->down_rate_limit_us = tunables->down_rate_limit_us;
+
+	pr_debug("tunables data saved for cpu[%u]\n", cpu);
+}
+
+static void get_tunables_data(struct sugov_tunables *tunables,
+		struct cpufreq_policy *policy)
+{
+	struct sugov_tunables *ptunables;
+	unsigned int lat;
+	unsigned int cpu = cpumask_first(policy->related_cpus);
+
+	ptunables = &per_cpu(cached_tunables, cpu);
+	if (!ptunables)
+		goto initialize;
+
+	if (ptunables->up_rate_limit_us > 0) {
+		tunables->up_rate_limit_us = ptunables->up_rate_limit_us;
+		tunables->down_rate_limit_us = ptunables->down_rate_limit_us;
+		pr_debug("tunables data restored for cpu[%u]\n", cpu);
+		goto out;
+	}
+
+initialize:
+	tunables->up_rate_limit_us = LATENCY_MULTIPLIER;
+	tunables->down_rate_limit_us = LATENCY_MULTIPLIER;
+	lat = policy->cpuinfo.transition_latency / NSEC_PER_USEC;
+	if (lat) {
+		tunables->up_rate_limit_us *= lat;
+		tunables->down_rate_limit_us *= lat;
+	}
+	
+	pr_debug("tunables data initialized for cpu[%u]\n", cpu);
+out:
+	return;
+}
+
 static int sugov_init(struct cpufreq_policy *policy)
 {
 	struct sugov_policy *sg_policy;
@@ -705,23 +753,10 @@ static int sugov_init(struct cpufreq_policy *policy)
 		goto stop_kthread;
 	}
 
-	if (policy->up_transition_delay_us && policy->down_transition_delay_us) {
-		tunables->up_rate_limit_us = policy->up_transition_delay_us;
-		tunables->down_rate_limit_us = policy->down_transition_delay_us;
-	} else {
-		unsigned int lat;
-
-                tunables->up_rate_limit_us = LATENCY_MULTIPLIER;
-                tunables->down_rate_limit_us = LATENCY_MULTIPLIER;
-		lat = policy->cpuinfo.transition_latency / NSEC_PER_USEC;
-		if (lat) {
-                        tunables->up_rate_limit_us *= lat;
-                        tunables->down_rate_limit_us *= lat;
-                }
-	}
-
 	tunables->iowait_boost_enable = policy->iowait_boost_enable;
-
+	
+	get_tunables_data(tunables, policy);
+	
 	policy->governor_data = sg_policy;
 	sg_policy->tunables = tunables;
 
@@ -761,14 +796,15 @@ static int sugov_exit(struct cpufreq_policy *policy)
 	unsigned int count;
 
 	mutex_lock(&global_tunables_lock);
-
+	
+	store_tunables_data(sg_policy->tunables, policy);
 	count = gov_attr_set_put(&tunables->attr_set, &sg_policy->tunables_hook);
 	policy->governor_data = NULL;
 	if (!count)
 		sugov_tunables_free(tunables);
 
 	mutex_unlock(&global_tunables_lock);
-
+	
 	sugov_kthread_stop(sg_policy);
 	sugov_policy_free(sg_policy);
 

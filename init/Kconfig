@@ -487,7 +487,6 @@ choice
 config TREE_RCU
 	bool "Tree-based hierarchical RCU"
 	depends on !PREEMPT && SMP
-	select IRQ_WORK
 	help
 	  This option selects the RCU implementation that is
 	  designed for very large SMP system with hundreds or
@@ -497,7 +496,6 @@ config TREE_RCU
 config TREE_PREEMPT_RCU
 	bool "Preemptible tree-based hierarchical RCU"
 	depends on PREEMPT
-	select IRQ_WORK
 	help
 	  This option selects the RCU implementation that is
 	  designed for very large SMP systems with hundreds or
@@ -655,13 +653,16 @@ config RCU_FAST_NO_HZ
 	depends on NO_HZ_COMMON && SMP
 	default n
 	help
-	  This option causes RCU to attempt to accelerate grace periods in
-	  order to allow CPUs to enter dynticks-idle state more quickly.
-	  On the other hand, this option increases the overhead of the
-	  dynticks-idle checking, thus degrading scheduling latency.
+	  This option permits CPUs to enter dynticks-idle state even if
+	  they have RCU callbacks queued, and prevents RCU from waking
+	  these CPUs up more than roughly once every four jiffies (by
+	  default, you can adjust this using the rcutree.rcu_idle_gp_delay
+	  parameter), thus improving energy efficiency.  On the other
+	  hand, this option increases the duration of RCU grace periods,
+	  for example, slowing down synchronize_rcu().
 
-	  Say Y if energy efficiency is critically important, and you don't
-	  care about real-time response.
+	  Say Y if energy efficiency is critically important, and you
+	  	don't care about increased grace-period durations.
 
 	  Say N if you are unsure.
 
@@ -806,6 +807,19 @@ config RCU_NOCB_CPU_ALL
 	  or energy-efficiency reasons.
 
 endchoice
+
+config RCU_EXPEDITE_BOOT
+	bool
+	default n
+	help
+	  This option enables expedited grace periods at boot time,
+	  as if rcu_expedite_gp() had been invoked early in boot.
+	  The corresponding rcu_unexpedite_gp() is invoked from
+	  rcu_end_inkernel_boot(), which is intended to be invoked
+	  at the end of the kernel-only boot sequence, just before
+	  init is exec'ed.
+
+	  Accept the default if unsure.
 
 endmenu # "RCU Subsystem"
 

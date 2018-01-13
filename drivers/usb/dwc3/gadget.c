@@ -3134,6 +3134,8 @@ static void dwc3_gadget_conndone_interrupt(struct dwc3 *dwc)
 
 	pr_info("%s\n", speed_to_string(dwc->gadget.speed));
 
+	dwc->eps[1]->endpoint.maxpacket = dwc->gadget.ep0->maxpacket;
+
 	/* Enable USB2 LPM Capability */
 
 	if ((dwc->revision > DWC3_REVISION_194A)

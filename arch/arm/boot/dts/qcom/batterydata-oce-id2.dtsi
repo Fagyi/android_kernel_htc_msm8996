@@ -1,0 +1,52 @@
+qcom,oce-id2-batterydata {
+	/* #2645123_HTC_B2PZF100lishen_3000mAh_averaged_MasterSlave_Nov22nd2016*/
+	qcom,max-voltage-uv = <4400000>;
+	qcom,v-cutoff-uv = <3250000>;
+	qcom,nom-batt-capacity-mah = <3000>;
+	qcom,batt-id-kohm = <22>;
+	qcom,battery-beta = <4360>;
+	qcom,battery-type = "oce_id2";
+	qcom,chg-rslow-comp-c1 = <3207669>;
+	qcom,chg-rslow-comp-c2 = <5388791>;
+	qcom,chg-rs-to-rslow = <935010>;
+	qcom,chg-rslow-comp-thr = <0xB5>;
+	qcom,checksum = <0x08F0>;
+	qcom,gui-version = "PMI8996GUI - 1.1.0.4";
+	htc,batt_id = <2>;
+	htc,id_raw_min = <16001>;
+	htc,id_raw_max = <27500>;
+	qcom,fg-profile-data = [
+		E9 83 F4 7C
+		FD 80 F4 76
+		56 83 77 35
+		FD 80 47 8C
+		12 82 E7 9A
+		49 BE CD CB
+		5B 0E FC 83
+		2E 7D 08 81
+		D9 76 4D 83
+		23 71 BE 38
+		22 7E 5B 82
+		52 99 8C BC
+		37 C9 5A 0C
+		C3 0B B6 59
+		14 70 52 F8
+		45 3E 61 3F
+		3F 39 00 00
+		43 45 3F 31
+		3F 29 00 00
+		00 00 00 00
+		00 00 00 00
+		5F 70 83 6B
+		87 5A 27 83
+		BE 75 17 69
+		45 5E 04 7B
+		A2 74 11 63
+		33 7D 00 A9
+		1A 3E 60 0A
+		5E A0 71 0C
+		28 00 FF 36
+		F0 11 30 03
+		00 00 00 0C
+	];
+};

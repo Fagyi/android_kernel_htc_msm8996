@@ -3065,18 +3065,6 @@ static void dwc3_update_ram_clk_sel(struct dwc3 *dwc, u32 speed)
 	dwc3_writel(dwc->regs, DWC3_GCTL, reg);
 }
 
-static const char *speed_to_string(enum usb_device_speed speed_type)
-{
-	switch (speed_type) {
-		case USB_SPEED_SUPER:   return "SUPERSPEED";
-		case USB_SPEED_HIGH:    return "HIGHSPEED";
-		case USB_SPEED_FULL:    return "FULLSPEED";
-		case USB_SPEED_LOW:     return "LOWSPEED";
-		case USB_SPEED_UNKNOWN:
-		default:                return "UNKNOWN SPEED";
-	}
-}
-
 static void dwc3_gadget_conndone_interrupt(struct dwc3 *dwc)
 {
 	struct dwc3_ep		*dep;

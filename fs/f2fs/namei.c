@@ -177,13 +177,7 @@ static int f2fs_create(struct inode *dir, struct dentry *dentry, umode_t mode,
 
 	alloc_nid_done(sbi, ino);
 
-	d_instantiate(dentry, inode);
-	unlock_new_inode(inode);
-
-	if (IS_DIRSYNC(dir))
-		f2fs_sync_fs(sbi->sb, 1);
-
-	f2fs_balance_fs(sbi, true);
+	d_instantiate_new(dentry, inode);
 	return 0;
 out:
 	handle_failed_inode(inode);
@@ -466,63 +460,7 @@ static int f2fs_symlink(struct inode *dir, struct dentry *dentry,
 	f2fs_unlock_op(sbi);
 	alloc_nid_done(sbi, inode->i_ino);
 
-	if (f2fs_encrypted_inode(inode)) {
-		struct qstr istr = QSTR_INIT(symname, len);
-		struct fscrypt_str ostr;
-
-		sd = kzalloc(disk_link.len, GFP_NOFS);
-		if (!sd) {
-			err = -ENOMEM;
-			goto err_out;
-		}
-
-		err = fscrypt_get_encryption_info(inode);
-		if (err)
-			goto err_out;
-
-		if (!fscrypt_has_encryption_key(inode)) {
-			err = -ENOKEY;
-			goto err_out;
-		}
-
-		ostr.name = sd->encrypted_path;
-		ostr.len = disk_link.len;
-		err = fscrypt_fname_usr_to_disk(inode, &istr, &ostr);
-		if (err)
-			goto err_out;
-
-		sd->len = cpu_to_le16(ostr.len);
-		disk_link.name = (char *)sd;
-	}
-
-	err = page_symlink(inode, disk_link.name, disk_link.len);
-
-err_out:
-	d_instantiate(dentry, inode);
-	unlock_new_inode(inode);
-
-	/*
-	 * Let's flush symlink data in order to avoid broken symlink as much as
-	 * possible. Nevertheless, fsyncing is the best way, but there is no
-	 * way to get a file descriptor in order to flush that.
-	 *
-	 * Note that, it needs to do dir->fsync to make this recoverable.
-	 * If the symlink path is stored into inline_data, there is no
-	 * performance regression.
-	 */
-	if (!err) {
-		filemap_write_and_wait_range(inode->i_mapping, 0,
-							disk_link.len - 1);
-
-		if (IS_DIRSYNC(dir))
-			f2fs_sync_fs(sbi->sb, 1);
-	} else {
-		f2fs_unlink(dir, dentry);
-	}
-
-	kfree(sd);
-
-	f2fs_balance_fs(sbi, true);
+	d_instantiate_new(dentry, inode);
 	return err;
 out:
 	handle_failed_inode(inode);
@@ -555,8 +493,7 @@ static int f2fs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
 
 	alloc_nid_done(sbi, inode->i_ino);
 
-	d_instantiate(dentry, inode);
-	unlock_new_inode(inode);
+	d_instantiate_new(dentry, inode);
 
 	if (IS_DIRSYNC(dir))
 		f2fs_sync_fs(sbi->sb, 1);
@@ -604,14 +541,7 @@ static int f2fs_mknod(struct inode *dir, struct dentry *dentry,
 	f2fs_unlock_op(sbi);
 
 	alloc_nid_done(sbi, inode->i_ino);
-
-	d_instantiate(dentry, inode);
-	unlock_new_inode(inode);
-
-	if (IS_DIRSYNC(dir))
-		f2fs_sync_fs(sbi->sb, 1);
-
-	f2fs_balance_fs(sbi, true);
+	d_instantiate_new(dentry, inode);
 	return 0;
 out:
 	handle_failed_inode(inode);

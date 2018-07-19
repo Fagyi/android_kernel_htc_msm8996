@@ -364,7 +364,7 @@ static void mdss_fb_set_bl_brightness(struct led_classdev *led_cdev,
 	if (value > mfd->panel_info->brightness_max)
 		value = mfd->panel_info->brightness_max;
 
-	bl_lvl = mdss_backlight_trans(value, mfd->panel_info, true);
+	bl_lvl = mdss_backlight_trans(value, &mfd->panel_info->brt_bl_table[0], true);
 
 	if (backlight_dimmer)
 		MDSS_BRIGHT_TO_BL_DIM(bl_lvl, bl_lvl);

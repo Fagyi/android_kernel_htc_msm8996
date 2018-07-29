@@ -115,6 +115,7 @@
 #define MAIN_TOUCH_SOLUTION 2
 #define SEC_TOUCH_SOLUTION 1
 
+static int rgb_coeff_divider = 1; // value between 1 - 20
 static int amber_short_lut [2] = {0};
 static int green_short_lut [2] = {0};
 static int blue_short_lut [2] = {0};
@@ -404,7 +405,6 @@ static int supposedly_charging = 0; // information from led call (multicolor wor
 static int colored_charge_level = 1; // if set to 1, colored charge level handling is enabled, 0 - not
 
 static int pulse_rgb_blink = 1;  // 0 - normal stock blinking / 1 - pulsating
-static int rgb_coeff_divider = 1; // value between 1 - 20
 static int bln_coeff_divider = 2; // value between 1 - 20
 
 static int qpnp_buttonled_blink_with_alarm(int on,int cancel_alarm);

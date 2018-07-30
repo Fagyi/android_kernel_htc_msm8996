@@ -380,7 +380,7 @@ void tcp_twsk_destructor(struct sock *sk);
 ssize_t tcp_splice_read(struct socket *sk, loff_t *ppos,
 			struct pipe_inode_info *pipe, size_t len,
 			unsigned int flags);
-
+void tcp_enter_quickack_mode(struct sock *sk);
 /* sysctl master controller */
 extern int tcp_use_userconfig_sysctl_handler(struct ctl_table *, int,
 				void __user *, size_t *, loff_t *);
@@ -545,6 +545,7 @@ int tcp_send_synack(struct sock *);
 bool tcp_syn_flood_action(struct sock *sk, const struct sk_buff *skb,
 			  const char *proto);
 void tcp_push_one(struct sock *, unsigned int mss_now);
+void __tcp_send_ack(struct sock *sk, u32 rcv_nxt);
 void tcp_send_ack(struct sock *sk);
 void tcp_send_delayed_ack(struct sock *sk);
 void tcp_send_loss_probe(struct sock *sk);

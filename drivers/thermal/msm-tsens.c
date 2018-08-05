@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2016, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -28,6 +28,7 @@
 #include <linux/debugfs.h>
 #include <linux/vmalloc.h>
 #include <asm/arch_timer.h>
+#include <soc/qcom/htc_util.h>
 
 #define CREATE_TRACE_POINTS
 #include <trace/trace_thermal.h>
@@ -87,6 +88,7 @@
 #define TSENS_TM_CRITICAL_INT_EN		BIT(2)
 #define TSENS_TM_UPPER_INT_EN			BIT(1)
 #define TSENS_TM_LOWER_INT_EN			BIT(0)
+#define TSENS_TM_UPPER_LOWER_INT_DISABLE	0xffffffff
 
 #define TSENS_TM_UPPER_INT_MASK(n)	(((n) & 0xffff0000) >> 16)
 #define TSENS_TM_LOWER_INT_MASK(n)	((n) & 0xffff)
@@ -136,11 +138,12 @@
 #define TSENS_PS_RED_CMD_SHIFT	0x14
 /* End TSENS_TM registers for 8996 */
 
+#define MPM2_TSENS_CTRL(n)		((n) + 0x4)
 #define TSENS_CTRL_ADDR(n)		(n)
 #define TSENS_EN			BIT(0)
 #define TSENS_SW_RST			BIT(1)
 #define TSENS_ADC_CLK_SEL		BIT(2)
-#define TSENS_SENSOR0_SHIFT		3
+#define TSENS_SENSOR_SHIFT		3
 #define TSENS_62_5_MS_MEAS_PERIOD	1
 #define TSENS_312_5_MS_MEAS_PERIOD	2
 #define TSENS_MEAS_PERIOD_SHIFT		18
@@ -737,7 +740,7 @@
 
 static uint32_t tsens_sec_to_msec_value = 1000;
 static uint32_t tsens_completion_timeout_hz = HZ/2;
-static uint32_t tsens_poll_check = 1;
+static uint32_t tsens_poll_check = 0;
 
 enum tsens_calib_fuse_map_type {
 	TSENS_CALIB_FUSE_MAP_8974 = 0,
@@ -802,10 +805,6 @@ struct tsens_tm_device_sensor {
 	int				calib_data_point2;
 	uint32_t			slope_mul_tsens_factor;
 	struct tsens_thrshld_state	debug_thr_state_copy;
-	/* dbg_adc_code logs either the raw ADC code or temperature values in
-	 * decidegC based on the controller settings.
-	 */
-	int				dbg_adc_code;
 	u32				wa_temp1_calib_offset_factor;
 	u32				wa_temp2_calib_offset_factor;
 };
@@ -821,6 +820,7 @@ struct tsens_sensor_dbg_info {
 	uint32_t			idx;
 	unsigned long long		time_stmp[10];
 	int				adccode[10];
+	unsigned int			sx_status_reg[10];
 };
 
 struct tsens_mtc_sysfs {
@@ -843,8 +843,8 @@ struct tsens_tm_device {
 	uint32_t			tsens_num_sensor;
 	int				tsens_irq;
 	int				tsens_critical_irq;
-	void				*tsens_addr;
-	void				*tsens_calib_addr;
+	void __iomem			*tsens_addr;
+	void __iomem			*tsens_calib_addr;
 	int				tsens_len;
 	int				calib_len;
 	struct resource			*res_tsens_mem;
@@ -862,6 +862,7 @@ struct tsens_tm_device {
 	struct tsens_mtc_sysfs		mtcsys;
 	spinlock_t			tsens_crit_lock;
 	spinlock_t			tsens_upp_low_lock;
+	spinlock_t			tsens_debug_lock;
 	bool				crit_set;
 	struct tsens_dbg_counter	crit_timestamp_last_run;
 	struct tsens_dbg_counter	crit_timestamp_last_interrupt_handled;
@@ -878,6 +879,14 @@ LIST_HEAD(tsens_device_list);
 static char dbg_buff[1024];
 static struct dentry *dent;
 static struct dentry *dfile_stats;
+
+#ifdef CONFIG_HTC_POWER_DEBUG
+#define MONITOR_TSENS_NUM_CONTROLLER 2
+static struct workqueue_struct *monitor_tsense_wq = NULL;
+struct delayed_work monitor_tsens_status_worker;
+static void monitor_tsens_status(struct work_struct *work);
+struct tsens_tm_device *monitor_tsens_status_tmdev[MONITOR_TSENS_NUM_CONTROLLER];
+#endif
 
 static struct of_device_id tsens_match[] = {
 	{	.compatible = "qcom,msm-tsens",
@@ -981,6 +990,7 @@ static int32_t get_tsens_sensor_for_client_id(struct tsens_tm_device *tmdev,
 	}
 
 	if (!strcmp(id->compatible, "qcom,msm8996-tsens") ||
+		(!strcmp(id->compatible, "qcom,msm8953-tsens")) ||
 		(!strcmp(id->compatible, "qcom,msmcobalt-tsens"))) {
 		while (i < tmdev->tsens_num_sensor && !id_found) {
 			if (tmdev->sensor[i].sensor_client_id ==
@@ -1108,66 +1118,67 @@ static int tsens_get_sw_id_mapping_for_controller(
 	return 0;
 }
 
-int tsens_get_hw_id_mapping(int sensor_sw_id, int *sensor_client_id)
+int tsens_get_hw_id_mapping(int thermal_sensor_num, int *sensor_client_id)
 {
-	int i = 0;
-	bool id_found = false;
 	struct tsens_tm_device *tmdev = NULL;
 	struct device_node *of_node = NULL;
 	const struct of_device_id *id;
+	uint32_t tsens_max_sensors = 0, idx = 0, i = 0;
 
-	tmdev = get_tsens_controller_for_client_id(sensor_sw_id);
-	if (tmdev == NULL) {
-		pr_debug("TSENS early init not done\n");
+	if (list_empty(&tsens_device_list)) {
+		pr_debug("%s: TSENS controller not available\n", __func__);
 		return -EPROBE_DEFER;
 	}
 
-	of_node = tmdev->pdev->dev.of_node;
-	if (of_node == NULL) {
-		pr_err("Invalid of_node??\n");
+	list_for_each_entry(tmdev, &tsens_device_list, list)
+		tsens_max_sensors += tmdev->tsens_num_sensor;
+
+	if (tsens_max_sensors != thermal_sensor_num) {
+		pr_err("TSENS total sensors is %d, thermal expects:%d\n",
+			tsens_max_sensors, thermal_sensor_num);
 		return -EINVAL;
 	}
 
-	if (!of_match_node(tsens_match, of_node)) {
-		pr_err("Need to read SoC specific fuse map\n");
-		return -ENODEV;
-	}
+	list_for_each_entry(tmdev, &tsens_device_list, list) {
+		of_node = tmdev->pdev->dev.of_node;
+		if (of_node == NULL) {
+			pr_err("Invalid of_node??\n");
+			return -EINVAL;
+		}
 
-	id = of_match_node(tsens_match, of_node);
-	if (id == NULL) {
-		pr_err("can not find tsens_match of_node\n");
-		return -ENODEV;
-	}
+		if (!of_match_node(tsens_match, of_node)) {
+			pr_err("Need to read SoC specific fuse map\n");
+			return -ENODEV;
+		}
+
+		id = of_match_node(tsens_match, of_node);
+		if (id == NULL) {
+			pr_err("can not find tsens_match of_node\n");
+			return -ENODEV;
+		}
 
 	if (!strcmp(id->compatible, "qcom,msm8996-tsens") ||
+		(!strcmp(id->compatible, "qcom,msm8953-tsens")) ||
 		(!strcmp(id->compatible, "qcom,msmcobalt-tsens"))) {
 		/* Assign a client id which will be used to get the
 		 * controller and hw_sensor details
 		 */
-		while (i < tmdev->tsens_num_sensor && !id_found) {
-			if (sensor_sw_id == tmdev->sensor[i].sensor_client_id) {
-				*sensor_client_id =
+			for (i = 0; i < tmdev->tsens_num_sensor; i++) {
+				sensor_client_id[idx] =
 					tmdev->sensor[i].sensor_client_id;
-				id_found = true;
+				idx++;
 			}
-			i++;
-		}
-	} else {
-		/* Assign the corresponding hw sensor number which is done
-		 * prior to support for multiple controllres
-		 */
-		while (i < tmdev->tsens_num_sensor && !id_found) {
-			if (sensor_sw_id == tmdev->sensor[i].sensor_sw_id) {
-				*sensor_client_id =
+		} else {
+			/* Assign the corresponding hw sensor number
+			 * prior to support for multiple controllres
+			 */
+			for (i = 0; i < tmdev->tsens_num_sensor; i++) {
+				sensor_client_id[idx] =
 					tmdev->sensor[i].sensor_hw_num;
-				id_found = true;
+				idx++;
 			}
-			i++;
 		}
 	}
-
-	if (!id_found)
-		return -EINVAL;
 
 	return 0;
 }
@@ -1392,7 +1403,8 @@ static int msm_tsens_get_temp(int sensor_client_id, unsigned long *temp)
 	bool last_temp_valid = false, last_temp2_valid = false;
 	bool last_temp3_valid = false;
 	struct tsens_tm_device *tmdev = NULL;
-	uint32_t sensor_hw_num = 0;
+	uint32_t sensor_hw_num = 0, idx = 0;
+	unsigned long flags;
 
 	tmdev = get_tsens_controller_for_client_id(sensor_client_id);
 	if (tmdev == NULL) {
@@ -1494,7 +1506,18 @@ static int msm_tsens_get_temp(int sensor_client_id, unsigned long *temp)
 		*temp = last_temp;
 	}
 
-	tmdev->sensor[sensor_hw_num].dbg_adc_code = last_temp;
+	spin_lock_irqsave(&tmdev->tsens_debug_lock, flags);
+	idx = tmdev->sensor_dbg_info[sensor_hw_num].idx;
+	tmdev->sensor_dbg_info[sensor_hw_num].temp[idx%10] = *temp;
+	tmdev->sensor_dbg_info[sensor_hw_num].time_stmp[idx%10] =
+					sched_clock();
+	tmdev->sensor_dbg_info[sensor_hw_num].adccode[idx%10] =
+			last_temp;
+	tmdev->sensor_dbg_info[sensor_hw_num].sx_status_reg[idx%10] =
+			code;
+	idx++;
+	tmdev->sensor_dbg_info[sensor_hw_num].idx = idx;
+	spin_unlock_irqrestore(&tmdev->tsens_debug_lock, flags);
 
 	trace_tsens_read(*temp, sensor_client_id);
 
@@ -1506,7 +1529,6 @@ static int tsens_tz_get_temp(struct thermal_zone_device *thermal,
 {
 	struct tsens_tm_device_sensor *tm_sensor = thermal->devdata;
 	struct tsens_tm_device *tmdev = NULL;
-	uint32_t idx = 0;
 	int rc = 0;
 
 	if (!tm_sensor || !temp)
@@ -1519,15 +1541,6 @@ static int tsens_tz_get_temp(struct thermal_zone_device *thermal,
 	rc = msm_tsens_get_temp(tm_sensor->sensor_client_id, temp);
 	if (rc)
 		return rc;
-
-	idx = tmdev->sensor_dbg_info[tm_sensor->sensor_hw_num].idx;
-	tmdev->sensor_dbg_info[tm_sensor->sensor_hw_num].temp[idx%10] = *temp;
-	tmdev->sensor_dbg_info[tm_sensor->sensor_hw_num].time_stmp[idx%10] =
-					sched_clock();
-	tmdev->sensor_dbg_info[tm_sensor->sensor_hw_num].adccode[idx%10] =
-			tmdev->sensor[tm_sensor->sensor_hw_num].dbg_adc_code;
-	idx++;
-	tmdev->sensor_dbg_info[tm_sensor->sensor_hw_num].idx = idx;
 
 	return 0;
 }
@@ -2619,6 +2632,48 @@ static irqreturn_t tsens_tm_irq_thread(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
+#ifdef CONFIG_HTC_POWER_DEBUG
+#define MESSAGE_SIZE 100
+
+static void monitor_tsens_status(struct work_struct *work)
+{
+	unsigned int i, j, cntl;
+	int enable = 0;
+	long temp = 0;
+	unsigned int tsens_id = 0;
+	char message[MESSAGE_SIZE];
+	char thermal_message[256];
+
+	memset(thermal_message, 0, sizeof(thermal_message));
+	for(i = 0 ; i < MONITOR_TSENS_NUM_CONTROLLER ; i++) {
+		if(monitor_tsens_status_tmdev[i] == NULL) {
+			printk("[THERMAL] tsens%d_controller doesn't initialize yet\n", i);
+			continue;
+		}
+		cntl = readl_relaxed(MPM2_TSENS_CTRL(monitor_tsens_status_tmdev[i]->tsens_addr));
+		safe_strcat(thermal_message, "[THERMAL] ");
+		scnprintf(message, MESSAGE_SIZE, "Cntl_%d[0x%08X]: ", i, cntl);
+		safe_strcat(thermal_message, message);
+		cntl >>= TSENS_SENSOR_SHIFT;
+
+		for (j = 0 ; j < monitor_tsens_status_tmdev[i]->tsens_num_sensor; j++) {
+			enable = cntl & (0x1 << j);
+			if (enable > 0) {
+				msm_tsens_get_temp(tsens_id, &temp);
+				scnprintf(message, MESSAGE_SIZE, "%s(%d,%ld.%ld)", j > 0 ? "," : "", tsens_id, temp/10, abs(temp%10));
+				safe_strcat(thermal_message, message);
+			}
+			tsens_id++;
+		}
+		printk("%s\n", thermal_message);
+		memset(thermal_message, 0, sizeof(thermal_message));
+	}
+	if (monitor_tsense_wq) {
+		queue_delayed_work(monitor_tsense_wq, &monitor_tsens_status_worker, msecs_to_jiffies(60000));
+	}
+}
+#endif
+
 static irqreturn_t tsens_irq_thread(int irq, void *data)
 {
 	struct tsens_tm_device *tm = data;
@@ -2708,6 +2763,7 @@ static int tsens_hw_init(struct tsens_tm_device *tmdev)
 {
 	void __iomem *srot_addr;
 	unsigned int srot_val;
+	void __iomem *int_mask_addr;
 
 	if (!tmdev) {
 		pr_err("Invalid tsens device\n");
@@ -2721,6 +2777,10 @@ static int tsens_hw_init(struct tsens_tm_device *tmdev)
 			pr_err("TSENS device is not enabled\n");
 			return -ENODEV;
 		}
+		int_mask_addr = TSENS_TM_UPPER_LOWER_INT_MASK
+					(tmdev->tsens_addr);
+		writel_relaxed(TSENS_TM_UPPER_LOWER_INT_DISABLE,
+					int_mask_addr);
 		writel_relaxed(TSENS_TM_CRITICAL_INT_EN |
 			TSENS_TM_UPPER_INT_EN | TSENS_TM_LOWER_INT_EN,
 			TSENS_TM_INT_EN(tmdev->tsens_addr));
@@ -2748,7 +2808,7 @@ static int tsens_calib_msm8937_msm8917_sensors(struct tsens_tm_device *tmdev)
 
 	int tsens_calibration_mode = 0, temp = 0;
 	uint32_t calib_data[5] = {0, 0, 0, 0, 0};
-	uint32_t calib_tsens_point1_data[11], calib_tsens_point2_data[11];
+	uint32_t calib_tsens_point1_data[11] = {0}, calib_tsens_point2_data[11] = {0};
 
 	if (tmdev->calib_mode == TSENS_CALIB_FUSE_MAP_MSM8917)
 		ext_sen = 0;
@@ -5710,6 +5770,42 @@ fail_tmdev:
 	return rc;
 }
 
+#ifdef CONFIG_PM
+/*
+ * HTC: Avoid wakeup by tsens when suspend/resume.
+ */
+static int tsens_irq_status = 1;
+static int tsens_suspend(struct device *dev)
+{
+	struct tsens_tm_device *tmdev = NULL;
+	tmdev = tsens_controller_is_present();
+	if(tmdev && tsens_irq_status) {
+		pr_info("%s: Disable TSENSE IRQ_WAKE(irq-%d) .\n", __func__, tmdev->tsens_irq);
+		disable_irq_wake(tmdev->tsens_irq);
+		tsens_irq_status = 0;
+	}
+	return 0;
+}
+
+static int tsens_resume(struct device *dev)
+{
+	struct tsens_tm_device *tmdev = NULL;
+	tmdev = tsens_controller_is_present();
+	if(tmdev && !tsens_irq_status) {
+		pr_info("%s: Enable TSENSE IRQ_WAKE(irq-%d) .\n", __func__, tmdev->tsens_irq);
+		enable_irq_wake(tmdev->tsens_irq);
+		tsens_irq_status = 1;
+	}
+	return 0;
+}
+
+static const struct dev_pm_ops tsens_pm_ops = {
+	.suspend = tsens_suspend,
+	.resume = tsens_resume,
+};
+#endif
+
+int tsens_tm_probe_count;
 static int tsens_tm_probe(struct platform_device *pdev)
 {
 	struct device_node *of_node = pdev->dev.of_node;
@@ -5746,7 +5842,6 @@ static int tsens_tm_probe(struct platform_device *pdev)
 		rc = -ENOMEM;
 		goto fail;
 	}
-
 	rc = tsens_calib_sensors(tmdev);
 	if (rc < 0) {
 		pr_err("Calibration failed\n");
@@ -5764,6 +5859,8 @@ static int tsens_tm_probe(struct platform_device *pdev)
 
 	spin_lock_init(&tmdev->tsens_crit_lock);
 	spin_lock_init(&tmdev->tsens_upp_low_lock);
+	spin_lock_init(&tmdev->tsens_debug_lock);
+
 	tmdev->is_ready = true;
 
 	list_add_tail(&tmdev->list, &tsens_device_list);
@@ -5773,6 +5870,28 @@ static int tsens_tm_probe(struct platform_device *pdev)
 	if (rc < 0)
 		pr_debug("Cannot create create_tsens_mtc_sysfs %d\n", rc);
 
+#ifdef CONFIG_HTC_POWER_DEBUG
+	for(i = 0 ; i < MONITOR_TSENS_NUM_CONTROLLER ; i++) {
+		if(tmdev == monitor_tsens_status_tmdev[i])
+			break;
+		if(monitor_tsens_status_tmdev[i] == NULL) {
+			monitor_tsens_status_tmdev[i] = tmdev;
+			break;
+		}
+	}
+	if(!tsens_tm_probe_count) {
+		tsens_tm_probe_count++;
+		if (monitor_tsense_wq == NULL) {
+			/* Create private workqueue... */
+			monitor_tsense_wq = create_workqueue("monitor_tsense_wq");
+			printk(KERN_INFO "Create monitor tsense workqueue(0x%p)...\n", monitor_tsense_wq);
+		}
+		if (monitor_tsense_wq) {
+			INIT_DELAYED_WORK(&monitor_tsens_status_worker, monitor_tsens_status);
+			queue_delayed_work(monitor_tsense_wq, &monitor_tsens_status_worker, msecs_to_jiffies(0));
+		}
+	}
+#endif
 	return 0;
 fail:
 	if (tmdev->tsens_critical_wq)
@@ -5841,6 +5960,11 @@ static int tsens_thermal_zone_register(struct tsens_tm_device *tmdev)
 	const struct of_device_id *id;
 	struct device_node *of_node;
 
+	if (tmdev == NULL) {
+		pr_err("Invalid tsens instance\n");
+		return -EINVAL;
+	}
+
 	of_node = tmdev->pdev->dev.of_node;
 	if (of_node == NULL) {
 		pr_err("Invalid of_node??\n");
@@ -5858,11 +5982,6 @@ static int tsens_thermal_zone_register(struct tsens_tm_device *tmdev)
 		return -ENODEV;
 	}
 
-	if (tmdev == NULL) {
-		pr_err("Invalid tsens instance\n");
-		return -EINVAL;
-	}
-
 	for (i = 0; i < tmdev->tsens_num_sensor; i++) {
 		char name[18];
 		if ((!strcmp(id->compatible, "qcom,mdm9640-tsens")) ||
@@ -5871,7 +5990,7 @@ static int tsens_thermal_zone_register(struct tsens_tm_device *tmdev)
 					tmdev->sensor[i].sensor_hw_num);
 		else
 			snprintf(name, sizeof(name), "tsens_tz_sensor%d",
-					tsens_sensor_sw_idx);
+					tmdev->sensor[i].sensor_client_id);
 
 		tmdev->sensor[i].mode = THERMAL_DEVICE_ENABLED;
 		tmdev->sensor[i].tm = tmdev;
@@ -5898,7 +6017,6 @@ static int tsens_thermal_zone_register(struct tsens_tm_device *tmdev)
 				goto fail;
 			}
 		}
-		tsens_sensor_sw_idx++;
 	}
 
 	if (tmdev->tsens_type == TSENS_TYPE3) {
@@ -6016,6 +6134,9 @@ static struct platform_driver tsens_tm_driver = {
 		.name = "msm-tsens",
 		.owner = THIS_MODULE,
 		.of_match_table = tsens_match,
+#ifdef CONFIG_PM
+		.pm = &tsens_pm_ops,
+#endif
 	},
 };
 

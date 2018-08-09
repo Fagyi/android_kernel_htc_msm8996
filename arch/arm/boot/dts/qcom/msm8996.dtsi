@@ -163,20 +163,20 @@
 			CPU_COST_0: core-cost0 {
 				busy-cost-data = <
 					149 90
-					205 121
-					229 142
-					253 164
-					296 198
-					350 239
+					207 122
+					233 140
+					263 166
+					298 196
+					342 231
 					406 306
-					469 371
-					491 430
-					527 486
-					572 541
-					584 586
-					630 651
-					666 732
-					711 827
+					459 367
+					494 423
+					529 480
+					570 536
+					589 566
+					630 642
+					666 711
+					707 800
 					763 925
 				>;
 				idle-cost-data = <
@@ -185,30 +185,30 @@
 			};
 			CPU_COST_1: core-cost1 {
 				busy-cost-data = <
-					149 93
-					197 116
-					229 142
-					253 164
-					296 198
-					350 239
-					372 270
-					400 310
-					445 345
-					495 400
-					527 486
-					572 541
-					598 567
-					630 651
-					666 732
-					711 827
-					743 865
-					780 946
-					812 1040
-					850 1097
-					868 1209
-					914 1311
-					961 1441
-					988 1535
+					149  93
+					197  117
+					233  140
+					263  166
+					298  196
+					342  231
+					368  281
+					415  322
+					449  356
+					494  423
+					529  480
+					570  536
+					596  582
+					630  642
+					666  711
+					707  800
+					746  887
+					779  972
+					814  1046
+					850  1141
+					868  1209
+					917  1331
+					959  1451
+					988  1560
 					1024 1715
 				>;
 				idle-cost-data = <
@@ -218,20 +218,20 @@
 			CLUSTER_COST_0: cluster-cost0 {
 				busy-cost-data = <
 					149 4
-					205 4
-					229 4
-					253 4
-					296 4
-					350 8
+					207 4
+					233 4
+					263 4
+					298 4
+					342 6
 					406 9
-					460 16
-					491 21
-					527 22
-					572 29
-					584 32
-					630 41
-					666 42
-					711 49
+					459 16
+					494 20
+					529 22
+					570 27
+					589 30
+					630 37
+					666 46
+					707 50
 					763 52
 				>;
 				idle-cost-data = <
@@ -241,30 +241,30 @@
 			};
 			CLUSTER_COST_1: cluster-cost1 {
 				busy-cost-data = <
-					149 4
-					197 4
-					229 4
-					253 4
-					296 4
-					350 4
-					372 7
-					400 10
-					445 15
-					495 16
-					527 21
-					572 22
-					598 29
-					630 32
-					666 41
-					711 42
-					743 49
-					780 52
-					812 62
-					850 69
-					868 75
-					914 81
-					961 90
-					988 93
+					149  4
+					197  4
+					233  4
+					263  4
+					298  4
+					342  6
+					368  9
+					415  14
+					449  16
+					494  20
+					529  22
+					570  27
+					596  31
+					630  37
+					666  46
+					707  50
+					746  51
+					779  57
+					814  66
+					850  72
+					868  75
+					917  83
+					959  91
+					988  94
 					1024 96
 				>;
 				idle-cost-data = <
@@ -2989,18 +2989,18 @@
 		compatible = "qcom,msm-thermal";
 		reg = <0x70000 0x1000>;
 		qcom,sensor-id = <11>;
-		qcom,poll-ms = <100>;
+		qcom,poll-ms = <250>;
 		qcom,limit-temp = <60>;
 		qcom,temp-hysteresis = <10>;
 		qcom,therm-reset-temp = <115>;
 		qcom,freq-step = <4>;
-		qcom,core-limit-temp = <70>;
+		qcom,core-limit-temp = <80>;
 		qcom,core-temp-hysteresis = <10>;
 		qcom,hotplug-temp = <105>;
-		qcom,hotplug-temp-hysteresis = <20>;
-		qcom,freq-mitigation-temp = <90>;
-		qcom,freq-mitigation-temp-hysteresis = <20>;
-		qcom,freq-mitigation-value = <1190400>;
+		qcom,hotplug-temp-hysteresis = <40>;
+		qcom,freq-mitigation-temp = <95>;
+		qcom,freq-mitigation-temp-hysteresis = <10>;
+		qcom,freq-mitigation-value = <576000>;
 		qcom,online-hotplug-core;
 		qcom,synchronous-cluster-id = <0 1>;
 		qcom,synchronous-cluster-map = <0 2 &CPU0 &CPU1>,
@@ -3039,7 +3039,7 @@
 		qcom,ibat-monitor {
 			qcom,low-threshold-uamp = <3400000>;
 			qcom,high-threshold-uamp = <4200000>;
-			qcom,mitigation-freq-khz = <1324800>;
+			qcom,mitigation-freq-khz = <729600>;
 			qcom,vph-high-threshold-uv = <3500000>;
 			qcom,vph-low-threshold-uv = <3300000>;
 			qcom,soc-low-threshold = <0>;

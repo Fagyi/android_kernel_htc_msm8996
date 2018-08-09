@@ -62,10 +62,6 @@
 #include <asm/unistd.h>
 #include <asm/pgtable.h>
 #include <asm/mmu_context.h>
-#include <htc_debug/stability/htc_process_debug.h>
-#ifdef CONFIG_MSM_APP_SETTINGS
-#include <asm/app_api.h>
-#endif
 
 static void exit_mm(struct task_struct *tsk);
 
@@ -465,18 +461,7 @@ static void exit_mm(struct task_struct *tsk)
 	BUG_ON(mm != tsk->active_mm);
 	/* more a memory barrier than a real lock */
 	task_lock(tsk);
-#ifdef CONFIG_MSM_APP_SETTINGS
-	preempt_disable();
-	if (tsk->mm && unlikely(tsk->mm->app_setting))
-		clear_app_setting_bit(APP_SETTING_BIT);
-
-	if (tsk->mm && unlikely(is_compat_thread(task_thread_info(tsk))))
-		clear_app_setting_bit_for_32bit_apps();
 	tsk->mm = NULL;
-	preempt_enable();
-#else
-	tsk->mm = NULL;
-#endif
 	up_read(&mm->mmap_sem);
 	enter_lazy_tlb(mm, current);
 	task_unlock(tsk);
@@ -696,20 +681,11 @@ static void check_stack_usage(void)
 static inline void check_stack_usage(void) {}
 #endif
 
-#ifdef CONFIG_HTC_FD_MONITOR
-extern int clean_fd_list(const int cur_pid, const int callfrom);
-#endif
-
 void do_exit(long code)
 {
 	struct task_struct *tsk = current;
 	int group_dead;
 	TASKS_RCU(int tasks_rcu_i);
-
-#ifdef CONFIG_HTC_FD_MONITOR
-	if(!(tsk->flags & PF_KTHREAD) && tsk->tgid == tsk->pid)
-		clean_fd_list(tsk->tgid, 0);
-#endif
 
 	profile_task_exit(tsk);
 	kcov_task_exit(tsk);
@@ -918,9 +894,6 @@ do_group_exit(int exit_code)
 	struct signal_struct *sig = current->signal;
 
 	BUG_ON(exit_code & 0x80); /* core dumps don't get here */
-#ifdef CONFIG_HTC_PROCESS_DEBUG
-	do_group_exit_debug_dump(exit_code);
-#endif
 
 	if (signal_group_exit(sig))
 		exit_code = sig->group_exit_code;

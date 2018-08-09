@@ -70,8 +70,6 @@ static inline void check_for_migration(struct rq *rq, struct task_struct *p) { }
 #define NICE_0_LOAD		SCHED_LOAD_SCALE
 #define NICE_0_SHIFT		SCHED_LOAD_SHIFT
 
-#define SCHED_LOAD_WINDOW_SIZE  10
-
 /*
  * Single value that decides SCHED_DEADLINE internal math precision.
  * 10 -> just above 1us

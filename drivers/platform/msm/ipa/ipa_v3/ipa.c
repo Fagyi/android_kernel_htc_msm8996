@@ -54,7 +54,7 @@
 #include "ipahal/ipahal.h"
 
 #define CREATE_TRACE_POINTS
-#include <trace/ipa_trace_v3.h>
+#include "ipa_trace.h"
 
 #define IPA_GPIO_IN_QUERY_CLK_IDX 0
 #define IPA_GPIO_OUT_CLK_RSP_CMPLT_IDX 0
@@ -2526,7 +2526,6 @@ static int ipa3_q6_set_ex_path_to_apps(void)
 	struct ipahal_imm_cmd_register_write reg_write;
 	struct ipahal_imm_cmd_pyld *cmd_pyld;
 	int retval;
-	struct ipahal_reg_valmask valmask;
 
 	desc = kcalloc(ipa3_ctx->ipa_num_pipes, sizeof(struct ipa3_desc),
 			GFP_KERNEL);
@@ -2541,40 +2540,10 @@ static int ipa3_q6_set_ex_path_to_apps(void)
 		if (ep_idx == -1)
 			continue;
 
-		if (ipa3_ctx->ep[ep_idx].valid &&
-			ipa3_ctx->ep[ep_idx].skip_ep_cfg) {
-			BUG_ON(num_descs >= ipa3_ctx->ipa_num_pipes);
-
-			reg_write.skip_pipeline_clear = false;
-			reg_write.pipeline_clear_options =
-				IPAHAL_HPS_CLEAR;
-			reg_write.offset =
-				ipahal_get_reg_n_ofst(IPA_ENDP_STATUS_n,
-					ep_idx);
-			ipahal_get_status_ep_valmask(
-				ipa3_get_ep_mapping(IPA_CLIENT_APPS_LAN_CONS),
-				&valmask);
-			reg_write.value = valmask.val;
-			reg_write.value_mask = valmask.mask;
-			cmd_pyld = ipahal_construct_imm_cmd(
-				IPA_IMM_CMD_REGISTER_WRITE, &reg_write, false);
-			if (!cmd_pyld) {
-				IPAERR("fail construct register_write cmd\n");
-				BUG();
-			}
-
-			desc[num_descs].opcode = ipahal_imm_cmd_get_opcode(
-				IPA_IMM_CMD_REGISTER_WRITE);
-			desc[num_descs].type = IPA_IMM_CMD_DESC;
-			desc[num_descs].callback = ipa3_destroy_imm;
-			desc[num_descs].user1 = cmd_pyld;
-			desc[num_descs].pyld = cmd_pyld->data;
-			desc[num_descs].len = cmd_pyld->len;
-			num_descs++;
-		}
-
-		/* disable statuses for modem producers */
-		if (IPA_CLIENT_IS_Q6_PROD(client_idx)) {
+		/* disable statuses for all modem controlled prod pipes */
+		if (IPA_CLIENT_IS_Q6_PROD(client_idx) ||
+			(ipa3_ctx->ep[ep_idx].valid &&
+			ipa3_ctx->ep[ep_idx].skip_ep_cfg)) {
 			ipa_assert_on(num_descs >= ipa3_ctx->ipa_num_pipes);
 
 			reg_write.skip_pipeline_clear = false;
@@ -4602,6 +4571,7 @@ static int ipa3_post_init(const struct ipa3_plat_drv_res *resource_p,
 	ipa3_register_panic_hdlr();
 
 	ipa3_ctx->q6_proxy_clk_vote_valid = true;
+	ipa3_ctx->q6_proxy_clk_vote_cnt++;
 
 	mutex_lock(&ipa3_ctx->lock);
 	ipa3_ctx->ipa_initialization_complete = true;
@@ -4680,6 +4650,8 @@ static int ipa3_pil_load_ipa_fws(void)
 	if (IS_ERR_OR_NULL(subsystem_get_retval)) {
 		IPAERR("Unable to trigger PIL process for FW loading\n");
 		return -EINVAL;
+	} else {
+		subsystem_put(subsystem_get_retval);
 	}
 
 	IPADBG("PIL FW loading process is complete\n");
@@ -4703,6 +4675,9 @@ static ssize_t ipa3_write(struct file *file, const char __user *buf,
 		IPAERR("Unable to copy data from user\n");
 		return -EFAULT;
 	}
+
+	if (count > 0)
+		dbg_buff[count] = '\0';
 
 	/* Prevent consequent calls from trying to load the FW again. */
 	if (ipa3_is_ready())
@@ -5238,6 +5213,7 @@ static int ipa3_pre_init(const struct ipa3_plat_drv_res *resource_p,
 	mutex_init(&ipa3_ctx->nat_mem.lock);
 	mutex_init(&ipa3_ctx->q6_proxy_clk_vote_mutex);
 	mutex_init(&ipa3_ctx->ipa_cne_evt_lock);
+	ipa3_ctx->q6_proxy_clk_vote_cnt = 0;
 
 	idr_init(&ipa3_ctx->ipa_idr);
 	spin_lock_init(&ipa3_ctx->idr_lock);

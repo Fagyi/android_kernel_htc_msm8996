@@ -1531,6 +1531,37 @@ int ipa_generate_hw_rule(enum ipa_ip_type ip,
 			ihl_ofst_meq32++;
 		}
 
+		if (attrib->attrib_mask & IPA_FLT_L2TP_INNER_IP_TYPE) {
+			if (ipa_ihl_ofst_meq32[ihl_ofst_meq32] == -1) {
+				IPAERR("ran out of ihl_meq32 eq\n");
+				return -EPERM;
+			}
+			*en_rule |= ipa_ihl_ofst_meq32[ihl_ofst_meq32];
+			/* 22  => offset of IP type after v6 header */
+			*buf = ipa_write_8(22, *buf);
+			*buf = ipa_write_32(0xF0000000, *buf);
+			if (attrib->type == 0x40)
+				*buf = ipa_write_32(0x40000000, *buf);
+			else
+				*buf = ipa_write_32(0x60000000, *buf);
+			*buf = ipa_pad_to_32(*buf);
+			ihl_ofst_meq32++;
+		}
+
+		if (attrib->attrib_mask & IPA_FLT_L2TP_INNER_IPV4_DST_ADDR) {
+			if (ipa_ihl_ofst_meq32[ihl_ofst_meq32] == -1) {
+				IPAERR("ran out of ihl_meq32 eq\n");
+				return -EPERM;
+			}
+			*en_rule |= ipa_ihl_ofst_meq32[ihl_ofst_meq32];
+			/* 38  => offset of inner IPv4 addr */
+			*buf = ipa_write_8(38, *buf);
+			*buf = ipa_write_32(attrib->u.v4.dst_addr_mask, *buf);
+			*buf = ipa_write_32(attrib->u.v4.dst_addr, *buf);
+			*buf = ipa_pad_to_32(*buf);
+			ihl_ofst_meq32++;
+		}
+
 		if (attrib->attrib_mask & IPA_FLT_SRC_PORT) {
 			if (ipa_ihl_ofst_rng16[ihl_ofst_rng16] == -1) {
 				IPAERR("ran out of ihl_rng16 eq\n");
@@ -2127,6 +2158,36 @@ int ipa_generate_flt_eq(enum ipa_ip_type ip,
 				0xFFFFFFFF;
 			eq_atrb->ihl_offset_meq_32[ihl_ofst_meq32].value =
 				attrib->spi;
+			ihl_ofst_meq32++;
+		}
+
+		if (attrib->attrib_mask & IPA_FLT_L2TP_INNER_IP_TYPE) {
+			if (ipa_ihl_ofst_meq32[ihl_ofst_meq32] == -1) {
+				IPAERR("ran out of ihl_meq32 eq\n");
+				return -EPERM;
+			}
+			*en_rule |= ipa_ihl_ofst_meq32[ihl_ofst_meq32];
+			/* 22  => offset of inner IP type after v6 header */
+			eq_atrb->ihl_offset_meq_32[ihl_ofst_meq32].offset = 22;
+			eq_atrb->ihl_offset_meq_32[ihl_ofst_meq32].mask =
+				0xF0000000;
+			eq_atrb->ihl_offset_meq_32[ihl_ofst_meq32].value =
+				(u32)attrib->type << 24;
+			ihl_ofst_meq32++;
+		}
+
+		if (attrib->attrib_mask & IPA_FLT_L2TP_INNER_IPV4_DST_ADDR) {
+			if (ipa_ihl_ofst_meq32[ihl_ofst_meq32] == -1) {
+				IPAERR("ran out of ihl_meq32 eq\n");
+				return -EPERM;
+			}
+			*en_rule |= ipa_ihl_ofst_meq32[ihl_ofst_meq32];
+			/* 38  => offset of inner IPv4 addr */
+			eq_atrb->ihl_offset_meq_32[ihl_ofst_meq32].offset = 38;
+			eq_atrb->ihl_offset_meq_32[ihl_ofst_meq32].mask =
+				attrib->u.v4.dst_addr_mask;
+			eq_atrb->ihl_offset_meq_32[ihl_ofst_meq32].value =
+				attrib->u.v4.dst_addr;
 			ihl_ofst_meq32++;
 		}
 
@@ -4596,7 +4657,7 @@ int ipa_tag_process(struct ipa_desc desc[],
 	}
 
 	/* IP_PACKET_INIT IC for tag status to be sent to apps */
-	pkt_init = kzalloc(sizeof(*pkt_init), GFP_KERNEL);
+	pkt_init = kzalloc(sizeof(*pkt_init), flag);
 	if (!pkt_init) {
 		IPAERR("failed to allocate memory\n");
 		res = -ENOMEM;
@@ -4615,7 +4676,7 @@ int ipa_tag_process(struct ipa_desc desc[],
 	desc_idx++;
 
 	/* NO-OP IC for ensuring that IPA pipeline is empty */
-	reg_write_nop = kzalloc(sizeof(*reg_write_nop), GFP_KERNEL);
+	reg_write_nop = kzalloc(sizeof(*reg_write_nop), flag);
 	if (!reg_write_nop) {
 		IPAERR("no mem\n");
 		res = -ENOMEM;
@@ -4634,7 +4695,7 @@ int ipa_tag_process(struct ipa_desc desc[],
 	desc_idx++;
 
 	/* status IC */
-	status = kzalloc(sizeof(*status), GFP_KERNEL);
+	status = kzalloc(sizeof(*status), flag);
 	if (!status) {
 		IPAERR("no mem\n");
 		res = -ENOMEM;
@@ -4670,7 +4731,7 @@ int ipa_tag_process(struct ipa_desc desc[],
 	atomic_set(&comp->cnt, 2);
 
 	/* dummy packet to send to IPA. packet payload is a completion object */
-	dummy_skb = alloc_skb(sizeof(comp), GFP_KERNEL);
+	dummy_skb = alloc_skb(sizeof(comp), flag);
 	if (!dummy_skb) {
 		IPAERR("failed to allocate memory\n");
 		res = -ENOMEM;
@@ -5228,6 +5289,10 @@ int ipa2_bind_api_controller(enum ipa_hw_type ipa_hw_type,
 	api_ctrl->ipa_get_pdev = ipa2_get_pdev;
 	api_ctrl->ipa_ntn_uc_reg_rdyCB = ipa2_ntn_uc_reg_rdyCB;
 	api_ctrl->ipa_ntn_uc_dereg_rdyCB = ipa2_ntn_uc_dereg_rdyCB;
+	api_ctrl->ipa_conn_wdi3_pipes = ipa2_conn_wdi3_pipes;
+	api_ctrl->ipa_disconn_wdi3_pipes = ipa2_disconn_wdi3_pipes;
+	api_ctrl->ipa_enable_wdi3_pipes = ipa2_enable_wdi3_pipes;
+	api_ctrl->ipa_disable_wdi3_pipes = ipa2_disable_wdi3_pipes;
 
 	return 0;
 }
@@ -5265,9 +5330,8 @@ void ipa_suspend_apps_pipes(bool suspend)
 	cfg.ipa_ep_suspend = suspend;
 
 	ipa_ep_idx = ipa_get_ep_mapping(IPA_CLIENT_APPS_LAN_CONS);
-	if(ipa_ep_idx >= 0)
-		ep = &ipa_ctx->ep[ipa_ep_idx];
-	if (ep && ep->valid) {
+	ep = &ipa_ctx->ep[ipa_ep_idx];
+	if (ep->valid) {
 		ipa2_cfg_ep_ctrl(ipa_ep_idx, &cfg);
 		/* Check if the pipes are empty. */
 		ret = sps_is_pipe_empty(ep->ep_hdl, &lan_empty);

@@ -100,7 +100,7 @@
 
 #define IPAERR_RL(fmt, args...) \
 	do { \
-		pr_err_ratelimited(DRV_NAME " %s:%d " fmt, __func__,\
+		pr_err_ratelimited_ipa(DRV_NAME " %s:%d " fmt, __func__,\
 		__LINE__, ## args);\
 		if (ipa3_ctx) { \
 			IPA_IPC_LOGGING(ipa3_ctx->logbuf, \
@@ -1316,6 +1316,7 @@ struct ipa3_context {
 	u32 curr_ipa_clk_rate;
 	bool q6_proxy_clk_vote_valid;
 	struct mutex q6_proxy_clk_vote_mutex;
+	u32 q6_proxy_clk_vote_cnt;
 	u32 ipa_num_pipes;
 	dma_addr_t pkt_init_imm[IPA3_MAX_NUM_PIPES];
 

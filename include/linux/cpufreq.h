@@ -110,7 +110,6 @@ struct cpufreq_policy {
 	 */
 	struct rw_semaphore	rwsem;
 
-
 	/*
 	 * Fast switch flags:
 	 * - fast_switch_possible should be set by the driver if it can
@@ -715,6 +714,7 @@ int cpufreq_generic_init(struct cpufreq_policy *policy,
  *********************************************************************/
 
 #ifdef CONFIG_CPU_FREQ_STAT
+
 void acct_update_power(struct task_struct *p, cputime_t cputime);
 void cpufreq_task_stats_init(struct task_struct *p);
 void cpufreq_task_stats_alloc(struct task_struct *p);
@@ -740,6 +740,5 @@ static inline void cpufreq_task_stats_remove_uids(uid_t uid_start,
 
 struct sched_domain;
 unsigned long cpufreq_scale_freq_capacity(struct sched_domain *sd, int cpu);
-unsigned long cpufreq_scale_max_freq_capacity(struct sched_domain *sd, int cpu);
-unsigned long cpufreq_scale_min_freq_capacity(struct sched_domain *sd, int cpu);
+unsigned long cpufreq_scale_max_freq_capacity(int cpu);
 #endif /* _LINUX_CPUFREQ_H */

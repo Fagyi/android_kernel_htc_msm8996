@@ -2938,7 +2938,6 @@ SYSCALL_DEFINE4(rt_sigtimedwait, const sigset_t __user *, uthese,
 SYSCALL_DEFINE2(kill, pid_t, pid, int, sig)
 {
 	struct siginfo info;
-	struct task_struct *p;
 
 	info.si_signo = sig;
 	info.si_errno = 0;
@@ -2946,11 +2945,6 @@ SYSCALL_DEFINE2(kill, pid_t, pid, int, sig)
 	info.si_pid = task_tgid_vnr(current);
 	info.si_uid = from_kuid_munged(current_user_ns(), current_uid());
 
-	if (sig == SIGQUIT || sig == SIGSEGV ||  sig == SIGABRT) {
-		p = pid_task(find_vpid(pid), PIDTYPE_PID);
-		if (p)
-			unfreezer_fork(p);
-	}
 	return kill_something_info(sig, &info, pid);
 }
 

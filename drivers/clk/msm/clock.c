@@ -326,14 +326,14 @@ int clk_prepare(struct clk *clk)
 	mutex_lock(&clk->prepare_lock);
 	if (clk->prepare_count == 0) {
 		parent = clk->parent;
-		if (!(clk->flags & CLKFLAG_IGNORE)) {
-			ret = clk_prepare(parent);
-			if (ret)
-				goto out;
-			ret = clk_prepare(clk->depends);
-			if (ret)
-				goto err_prepare_depends;
-		}
+
+		ret = clk_prepare(parent);
+		if (ret)
+			goto out;
+		ret = clk_prepare(clk->depends);
+		if (ret)
+			goto err_prepare_depends;
+
 		ret = vote_rate_vdd(clk, clk->rate);
 		if (ret)
 			goto err_vote_vdd;
@@ -377,14 +377,13 @@ int clk_enable(struct clk *clk)
 			"%s: Don't call enable on unprepared clocks\n", name);
 	if (clk->count == 0) {
 		parent = clk->parent;
-		if (!(clk->flags & CLKFLAG_IGNORE)) {
-			ret = clk_enable(parent);
-			if (ret)
-				goto err_enable_parent;
-			ret = clk_enable(clk->depends);
-			if (ret)
-				goto err_enable_depends;
-		}
+
+		ret = clk_enable(parent);
+		if (ret)
+			goto err_enable_parent;
+		ret = clk_enable(clk->depends);
+		if (ret)
+			goto err_enable_depends;
 
 		trace_clock_enable(name, 1, smp_processor_id());
 		if (clk->ops->enable)
@@ -826,28 +825,6 @@ int clk_set_flags(struct clk *clk, unsigned long flags)
 }
 EXPORT_SYMBOL(clk_set_flags);
 
-int clk_set_duty_cycle(struct clk *clk, u32 numerator, u32 denominator)
-{
-	if (IS_ERR_OR_NULL(clk))
-		return -EINVAL;
-
-	if (numerator > denominator) {
-		pr_err("Numerator cannot be > denominator\n");
-		return -EINVAL;
-	}
-
-	if (!denominator) {
-		pr_err("Denominator can not be Zero\n");
-		return -EINVAL;
-	}
-
-	if (!clk->ops->set_duty_cycle)
-		return -ENOSYS;
-
-	return clk->ops->set_duty_cycle(clk, numerator, denominator);
-}
-EXPORT_SYMBOL(clk_set_duty_cycle);
-
 static LIST_HEAD(initdata_list);
 
 static void init_sibling_lists(struct clk_lookup *clock_tbl, size_t num_clocks)
@@ -910,35 +887,34 @@ static int __handoff_clk(struct clk *clk)
 		return -EPROBE_DEFER;
 
 	/* Handoff any 'depends' clock first. */
-	if (!(clk->flags&CLKFLAG_IGNORE)) {
-		rc = __handoff_clk(clk->depends);
-		if (rc)
-			goto err;
+	rc = __handoff_clk(clk->depends);
+	if (rc)
+		goto err;
 
-		/*
-		 * Handoff functions for the parent must be called before the
-		 * children can be handed off. Without handing off the parents and
-		 * knowing their rate and state (on/off), it's impossible to figure
-		 * out the rate and state of the children.
-		 */
-		if (clk->ops->get_parent)
-			clk->parent = clk->ops->get_parent(clk);
+	/*
+	 * Handoff functions for the parent must be called before the
+	 * children can be handed off. Without handing off the parents and
+	 * knowing their rate and state (on/off), it's impossible to figure
+	 * out the rate and state of the children.
+	 */
+	if (clk->ops->get_parent)
+		clk->parent = clk->ops->get_parent(clk);
 
-		if (IS_ERR(clk->parent)) {
-			rc = PTR_ERR(clk->parent);
-			goto err;
-		}
-
-		rc = __handoff_clk(clk->parent);
-		if (rc)
-			goto err;
-
-		for (i = 0; i < clk->num_parents; i++) {
-			rc = __handoff_clk(clk->parents[i].src);
-			if (rc)
-				goto err;
-		}
+	if (IS_ERR(clk->parent)) {
+		rc = PTR_ERR(clk->parent);
+		goto err;
 	}
+
+	rc = __handoff_clk(clk->parent);
+	if (rc)
+		goto err;
+
+	for (i = 0; i < clk->num_parents; i++) {
+		rc = __handoff_clk(clk->parents[i].src);
+		if (rc)
+			goto err;
+	}
+
 	if (clk->ops->handoff)
 		state = clk->ops->handoff(clk);
 
@@ -949,15 +925,14 @@ static int __handoff_clk(struct clk *clk)
 			rc = -ENOMEM;
 			goto err;
 		}
-		if (!(clk->flags&CLKFLAG_IGNORE)) {
-			rc = clk_prepare_enable(clk->parent);
-			if (rc)
-				goto err;
 
-			rc = clk_prepare_enable(clk->depends);
-			if (rc)
-				goto err_depends;
-		}
+		rc = clk_prepare_enable(clk->parent);
+		if (rc)
+			goto err;
+
+		rc = clk_prepare_enable(clk->depends);
+		if (rc)
+			goto err_depends;
 
 		rc = vote_rate_vdd(clk, clk->rate);
 		WARN(rc, "%s unable to vote for voltage!\n", clk->dbg_name);
@@ -1034,10 +1009,6 @@ int msm_clock_register(struct clk_lookup *table, size_t size)
 
 	for (n = 0; n < size; n++)
 		__handoff_clk(table[n].clk);
-
-#ifdef CONFIG_HTC_POWER_DEBUG
-	htc_clock_status_debug_init(table, size);
-#endif
 
 	/* maintain backwards compatibility */
 	if (table[0].con_id || table[0].dev_id)

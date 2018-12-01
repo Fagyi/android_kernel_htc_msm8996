@@ -104,8 +104,6 @@ DEFINE_CLK_DUMMY(gcc_ce1_axi_m_clk, 0);
 DEFINE_CLK_DUMMY(measure_only_bimc_hmss_axi_clk, 0);
 
 DEFINE_CLK_RPM_SMD_XO_BUFFER(ln_bb_clk, ln_bb_a_clk, LN_BB_CLK_ID);
-DEFINE_CLK_RPM_SMD_XO_BUFFER_PINCTRL(ln_bb_clk_pin, ln_bb_a_clk_pin,
-				LN_BB_CLK_PIN_ID);
 static DEFINE_CLK_VOTER(mcd_ce1_clk, &ce1_clk.c, 85710000);
 static DEFINE_CLK_VOTER(pnoc_keepalive_a_clk, &pnoc_a_clk.c, LONG_MAX);
 static DEFINE_CLK_VOTER(pnoc_msmbus_clk, &pnoc_clk.c, LONG_MAX);
@@ -1710,7 +1708,7 @@ static struct local_vote_clk gcc_blsp1_ahb_clk = {
 	.base = &virt_base,
 	.c = {
 		.dbg_name = "gcc_blsp1_ahb_clk",
-		.ops = &clk_ops_vote,
+		.ops = &clk_ops_blsp1_ahb_vote,
 		CLK_INIT(gcc_blsp1_ahb_clk.c),
 	},
 };
@@ -3370,8 +3368,6 @@ static struct clk_lookup msm_clocks_rpm_8996[] = {
 	CLK_LIST(ipa_clk),
 	CLK_LIST(ln_bb_clk),
 	CLK_LIST(ln_bb_a_clk),
-	CLK_LIST(ln_bb_clk_pin),
-	CLK_LIST(ln_bb_a_clk_pin),
 	CLK_LIST(mcd_ce1_clk),
 	CLK_LIST(pnoc_keepalive_a_clk),
 	CLK_LIST(pnoc_msmbus_clk),
@@ -3603,30 +3599,6 @@ static struct clk_lookup msm_clocks_gcc_8996_v2[] = {
 	CLK_LIST(gpll0_out_msscc),
 };
 
-/* Added for clock debugging */
-void clk_gcc_ignore_list_add(const char *clock_name)
-{
-	struct clk_lookup *p, *cl = NULL;
-	int i;
-
-	for (i = 0; i < ARRAY_SIZE(msm_clocks_gcc_8996); i++) {
-		p = &msm_clocks_gcc_8996[i];
-		if (p->clk && !strcmp(p->clk->dbg_name, clock_name)) {
-			cl = p;
-		}
-	}
-	if (cl)
-	cl->clk->flags |= CLKFLAG_IGNORE;
-}
-
-/* Added for clock debugging */
-int __init clk_gcc_ignore_list_init(void)
-{
-	clk_gcc_ignore_list_add("gcc_blsp2_uart2_apps_clk");
-	return 0;
-}
-module_init(clk_gcc_ignore_list_init);
-
 static void msm_clocks_gcc_8996_v2_fixup(void)
 {
 	pcie_aux_clk_src.c.fmax[VDD_DIG_LOWER] = 9600000;
@@ -3845,83 +3817,3 @@ int __init msm_clock_debug_8996_init(void)
 	return platform_driver_register(&msm_clock_debug_driver);
 }
 late_initcall(msm_clock_debug_8996_init);
-
-#ifdef CONFIG_HTC_POWER_DEBUG
-static LIST_HEAD(clk_blocked_list);
-static DEFINE_SPINLOCK(clk_blocked_lock);
-
-struct clk_table {
-        struct list_head node;
-        struct clk_lookup *clocks;
-        size_t num_clocks;
-};
-
-int clock_blocked_register(struct clk_lookup *table, size_t size)
-{
-        struct clk_table *clk_table;
-        unsigned long flags;
-
-        clk_table = kmalloc(sizeof(*clk_table), GFP_KERNEL);
-        if (!clk_table)
-                return -ENOMEM;
-
-        clk_table->clocks = table;
-        clk_table->num_clocks = size;
-
-        spin_lock_irqsave(&clk_blocked_lock, flags);
-        list_add_tail(&clk_table->node, &clk_blocked_list);
-        spin_unlock_irqrestore(&clk_blocked_lock, flags);
-
-        return 0;
-}
-
-int is_xo_src(struct clk *clk)
-{
-        if (clk == NULL)
-                return 0;
-        if (clk == &cxo_clk_src.c)
-                return 1;
-        else if (clk_get_parent(clk))
-                return is_xo_src(clk_get_parent(clk));
-        else
-                return 0;
-}
-
-static int clock_blocked_print_one(struct clk *c)
-{
-        if (!c || !c->prepare_count)
-                return 0;
-
-        if (is_xo_src(c)) {
-                if (c->vdd_class)
-                        pr_info("%s not off block xo vdig level %ld, parent clk: %s\n",
-                                c->dbg_name, c->vdd_class->cur_level,
-                                clk_get_parent(c)?clk_get_parent(c)->dbg_name:"none");
-                else
-                        pr_info("%s not off block xo vdig level (none), parent clk: %s\n",
-                                c->dbg_name,
-                                clk_get_parent(c)?clk_get_parent(c)->dbg_name:"none");
-
-                return 1;
-        }
-        return 0;
-}
-
-void clock_blocked_print(void)
-{
-        struct clk_table *table;
-        unsigned long flags;
-        int i, cnt = 0;
-
-        spin_lock_irqsave(&clk_blocked_lock, flags);
-        list_for_each_entry(table, &clk_blocked_list, node) {
-                for (i = 0; i < table->num_clocks; i++)
-                        cnt += clock_blocked_print_one(table->clocks[i].clk);
-        }
-        spin_unlock_irqrestore(&clk_blocked_lock, flags);
-
-        if (cnt)
-                pr_info("%d clks are on that block xo or vddmin\n", cnt);
-
-}
-#endif

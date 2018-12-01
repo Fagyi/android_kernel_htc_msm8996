@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2014-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -676,7 +676,7 @@ static int cpu_clk_8996_set_rate(struct clk *c, unsigned long rate)
 {
 	struct cpu_clk_8996 *cpuclk = to_cpu_clk_8996(c);
 	int ret, err_ret;
-	unsigned long alt_pll_prev_rate;
+	unsigned long alt_pll_prev_rate = 0;
 	unsigned long alt_pll_rate;
 	unsigned long n_alt_freqs = cpuclk->n_alt_pll_freqs;
 	bool on_acd_leg = rate > MAX_PLL_MAIN_FREQ;
@@ -1060,30 +1060,6 @@ static struct clk_lookup cpu_clocks_8996[] = {
 	CLK_LIST(cpu_debug_mux),
 };
 
-#if defined(CONFIG_HTC_DEBUG_FOOTPRINT)
-/* get effective cpu idx by clk */
-int clk_get_cpu_idx(struct clk *c)
-{
-	/* cpu0, cpu1 are small cluster. */
-	if (c == &pwrcl_clk.c || c == &pwrcl_hf_mux.c)
-		return 0;
-
-	/* cpu2, cpu3 are big cluster. */
-	else if (c == &perfcl_clk.c || c == &perfcl_hf_mux.c)
-		return 2;
-
-	return -1;
-}
-
-int clk_get_l2_idx(struct clk *c)
-{
-	if (c == &cbf_hf_mux.c)
-		return 0;
-
-	return -1;
-}
-#endif
-
 static int of_get_fmax_vdd_class(struct platform_device *pdev, struct clk *c,
 								char *prop_name)
 {
@@ -1332,7 +1308,6 @@ static int cpu_clock_8996_driver_probe(struct platform_device *pdev)
 	unsigned long pwrclrate, perfclrate, cbfrate;
 	int pvs_ver = 0;
 	u32 pte_efuse;
-	u32 clk_rate;
 	char perfclspeedbinstr[] = "qcom,perfcl-speedbinXX-vXX";
 	char pwrclspeedbinstr[] = "qcom,pwrcl-speedbinXX-vXX";
 	char cbfspeedbinstr[] = "qcom,cbf-speedbinXX-vXX";
@@ -1460,18 +1435,6 @@ static int cpu_clock_8996_driver_probe(struct platform_device *pdev)
 	clk_prepare_enable(&pwrcl_alt_pll.c);
 	clk_prepare_enable(&cbf_pll.c);
 
-	/* Override the existing ealry boot frequency for power cluster */
-	ret = of_property_read_u32(pdev->dev.of_node,
-				"qcom,pwrcl-early-boot-freq", &clk_rate);
-	if (!ret)
-		pwrcl_early_boot_rate = clk_rate;
-
-	/* Override the existing ealry boot frequency for perf cluster */
-	ret = of_property_read_u32(pdev->dev.of_node,
-				"qcom,perfcl-early-boot-freq", &clk_rate);
-	if (!ret)
-		perfcl_early_boot_rate = clk_rate;
-
 	/* Set the early boot rate. This may also switch us to the ACD leg */
 	clk_set_rate(&pwrcl_clk.c, pwrcl_early_boot_rate);
 	clk_set_rate(&perfcl_clk.c, perfcl_early_boot_rate);
@@ -1487,7 +1450,6 @@ static struct of_device_id match_table[] = {
 	{ .compatible = "qcom,cpu-clock-8996" },
 	{ .compatible = "qcom,cpu-clock-8996-v3" },
 	{ .compatible = "qcom,cpu-clock-8996-pro" },
-	{ .compatible = "qcom,cpu-clock-8996-auto" },
 	{}
 };
 
@@ -1537,9 +1499,6 @@ module_exit(cpu_clock_8996_exit);
 #define HF_MUX_SEL_LF_MUX 0x1
 #define LF_MUX_SEL_ALT_PLL 0x1
 
-#define PWRCL_EARLY_BOOT_RATE 1286400000
-#define PERFCL_EARLY_BOOT_RATE 1363200000
-
 static int use_alt_pll;
 module_param(use_alt_pll, int, 0444);
 
@@ -1577,12 +1536,6 @@ int __init cpu_clock_8996_early_init(void)
 					 "qcom,cpu-clock-8996-pro")) {
 		cpu_clocks_v3 = true;
 		cpu_clocks_pro = true;
-	} else if (of_find_compatible_node(NULL, NULL,
-					"qcom,cpu-clock-8996-auto")) {
-		cpu_clocks_v3 = true;
-		cpu_clocks_pro = true;
-		pwrcl_early_boot_rate = PWRCL_EARLY_BOOT_RATE;
-		perfcl_early_boot_rate = PERFCL_EARLY_BOOT_RATE;
 	} else if (of_find_compatible_node(NULL, NULL,
 					 "qcom,cpu-clock-8996-v3")) {
 		cpu_clocks_v3 = true;

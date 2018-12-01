@@ -36,6 +36,7 @@
 /* For clock without halt checking, wait this long after enables/disables. */
 #define HALT_CHECK_DELAY_US	500
 
+#define BLSP1_AHB_DISABLE_DELAY_US	50
 #define RCG_FORCE_DISABLE_DELAY_US	100
 
 /*
@@ -344,48 +345,6 @@ static void disable_unprepare_rcg_srcs(struct clk *c, struct clk *curr,
 	clk_unprepare(curr);
 	if (c->prepare_count)
 		clk_unprepare(curr);
-}
-
-static int rcg_clk_set_duty_cycle(struct clk *c, u32 numerator,
-				u32 denominator)
-{
-	struct rcg_clk *rcg = to_rcg_clk(c);
-	u32 notn_m_val, n_val, m_val, d_val, not2d_val;
-	u32 max_n_value;
-
-	if (!numerator || numerator == denominator)
-		return -EINVAL;
-
-	if (!rcg->mnd_reg_width)
-		rcg->mnd_reg_width = 8;
-
-	max_n_value = 1 << (rcg->mnd_reg_width - 1);
-
-	notn_m_val = readl_relaxed(N_REG(rcg));
-	m_val = readl_relaxed(M_REG(rcg));
-	n_val = ((~notn_m_val) + m_val) & BM((rcg->mnd_reg_width - 1), 0);
-
-	if (n_val > max_n_value) {
-		pr_warn("%s duty-cycle cannot be set for required frequency %ld\n",
-				c->dbg_name, clk_get_rate(c));
-		return -EINVAL;
-	}
-
-	/* Calculate the 2d value */
-	d_val = DIV_ROUND_CLOSEST((numerator * n_val * 2),  denominator);
-
-	/* Check BIT WIDTHS OF 2d.  If D is too big reduce Duty cycle. */
-	if (d_val > (BIT(rcg->mnd_reg_width) - 1)) {
-		d_val = (BIT(rcg->mnd_reg_width) - 1) / 2;
-		d_val *= 2;
-	}
-
-	not2d_val = (~d_val) & BM((rcg->mnd_reg_width - 1), 0);
-
-	writel_relaxed(not2d_val, D_REG(rcg));
-	rcg_update_config(rcg);
-
-	return 0;
 }
 
 static int rcg_clk_set_rate(struct clk *c, unsigned long rate)
@@ -947,7 +906,8 @@ static unsigned long branch_clk_get_rate(struct clk *c)
 {
 	struct branch_clk *branch = to_branch_clk(c);
 
-	if (branch->max_div)
+	if (branch->max_div ||
+			(branch->aggr_sibling_rates && !branch->is_prepared))
 		return branch->c.rate;
 
 	return clk_get_rate(c->parent);
@@ -1000,10 +960,9 @@ static enum handoff branch_clk_handoff(struct clk *c)
 		return HANDOFF_DISABLED_CLK;
 
 	if (!(cbcr_regval & CBCR_BRANCH_ENABLE_BIT)) {
-		if (!branch->check_enable_bit) {
-			pr_warn("%s clock is enabled in HW", c->dbg_name);
-			pr_warn("even though ENABLE_BIT is not set\n");
-		}
+		WARN(!branch->check_enable_bit,
+			"%s clock is enabled in HW even though ENABLE_BIT is not set\n",
+			c->dbg_name);
 		return HANDOFF_DISABLED_CLK;
 	}
 
@@ -1113,6 +1072,12 @@ static void local_vote_clk_disable(struct clk *c)
 	ena &= ~vclk->en_mask;
 	writel_relaxed(ena, VOTE_REG(vclk));
 	spin_unlock_irqrestore(&local_clock_reg_lock, flags);
+}
+
+static void local_vote_clk_blsp1_ahb_disable(struct clk *c)
+{
+	local_vote_clk_disable(c);
+	udelay(BLSP1_AHB_DISABLE_DELAY_US);
 }
 
 static enum handoff local_vote_clk_handoff(struct clk *c)
@@ -2162,7 +2127,6 @@ struct clk_ops clk_ops_rcg_mnd = {
 	.enable = rcg_clk_enable,
 	.disable = rcg_clk_disable,
 	.set_rate = rcg_clk_set_rate,
-	.set_duty_cycle = rcg_clk_set_duty_cycle,
 	.list_rate = rcg_clk_list_rate,
 	.round_rate = rcg_clk_round_rate,
 	.handoff = rcg_mnd_clk_handoff,
@@ -2270,6 +2234,14 @@ struct clk_ops clk_ops_vote = {
 	.list_registers = local_vote_clk_list_registers,
 };
 
+struct clk_ops clk_ops_blsp1_ahb_vote = {
+	.enable = local_vote_clk_enable,
+	.disable = local_vote_clk_blsp1_ahb_disable,
+	.reset = local_vote_clk_reset,
+	.handoff = local_vote_clk_handoff,
+	.list_registers = local_vote_clk_list_registers,
+};
+
 struct clk_ops clk_ops_gate = {
 	.enable = gate_clk_enable,
 	.disable = gate_clk_disable,
@@ -2335,9 +2307,6 @@ static void *cbc_dt_parser(struct device *dev, struct device_node *np)
 
 	/* Optional property */
 	of_property_read_u32(np, "qcom,bcr-offset", &branch_clk->bcr_reg);
-
-	of_property_read_u32(np, "qcom,halt-check",
-					(u32 *)&branch_clk->halt_check);
 
 	branch_clk->has_sibling = of_property_read_bool(np,
 							"qcom,has-sibling");

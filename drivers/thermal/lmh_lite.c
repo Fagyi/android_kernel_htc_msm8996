@@ -458,7 +458,6 @@ static int lmh_get_sensor_devicetree(struct platform_device *pdev)
 	char *key = NULL;
 	struct device_node *node = pdev->dev.of_node;
 	struct resource *lmh_intr_base = NULL;
-	/*struct resource *lmh_odcm_base = NULL;*/
 
 	lmh_data->trim_err_disable = false;
 	key = "qcom,lmh-trim-err-offset";
@@ -519,8 +518,7 @@ static int lmh_get_sensor_devicetree(struct platform_device *pdev)
 	}
 
 	if (!lmh_data->trim_err_disable) {
-		lmh_intr_base = platform_get_resource_byname(pdev,
-					IORESOURCE_MEM, "lmh_interrupt_status");
+		lmh_intr_base = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 		if (!lmh_intr_base) {
 			ret = -EINVAL;
 			pr_err("Error getting reg MEM for LMH.\n");

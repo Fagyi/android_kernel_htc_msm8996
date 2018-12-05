@@ -191,29 +191,15 @@ static int receive_room(struct tty_struct *tty)
 	return left;
 }
 
-/* If we are not echoing the data, perhaps this is a secret so erase it */
-static inline void zero_buffer(struct tty_struct *tty, u8 *buffer, int size)
-{
-	bool icanon = !!L_ICANON(tty);
-	bool no_echo = !L_ECHO(tty);
-
-	if (icanon && no_echo)
-		memset(buffer, 0x00, size);
-}
-
 static inline int tty_copy_to_user(struct tty_struct *tty,
 					void __user *to,
-					void *from,
+					const void *from,
 					unsigned long n)
 {
 	struct n_tty_data *ldata = tty->disc_data;
-	int retval;
 
 	tty_audit_add_data(tty, from, n, ldata->icanon);
-	retval = copy_to_user(to, from, n);
-	if (!retval)
-		zero_buffer(tty, from, n);
-	return retval;
+	return copy_to_user(to, from, n);
 }
 
 /**
@@ -2019,8 +2005,6 @@ static int copy_from_read_buf(struct tty_struct *tty,
 		tty_audit_add_data(tty, read_buf_addr(ldata, tail), n,
 				ldata->icanon);
 		smp_store_release(&ldata->read_tail, ldata->read_tail + n);
-		zero_buffer(tty, read_buf_addr(ldata, tail), n);
-		ldata->read_tail += n;
 		/* Turn single EOF into zero-length read */
 		if (L_EXTPROC(tty) && ldata->icanon && is_eof &&
 			(head == ldata->read_tail))

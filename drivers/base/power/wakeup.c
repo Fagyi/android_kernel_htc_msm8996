@@ -18,21 +18,12 @@
 #include <linux/moduleparam.h>
 #include <linux/proc_fs.h>
 #include <trace/events/power.h>
-#include <linux/moduleparam.h>
 
 #include "power.h"
 #include <soc/qcom/htc_util.h>
 
-static bool enable_ipa_ws = true;
+static bool enable_ipa_ws = false;
 module_param(enable_ipa_ws, bool, 0644);
-static bool enable_wlan_wake = true;
-module_param(enable_wlan_wake, bool, 0644);
-static bool enable_timerfd_ws = true;
-module_param(enable_timerfd_ws, bool, 0644);
-static bool enable_netlink_ws = true;
-module_param(enable_netlink_ws, bool, 0644);
-static bool enable_netmgr_wl_ws = true;
-module_param(enable_netmgr_wl_ws, bool, 0644);
 
 
 #ifdef CONFIG_BOEFFLA_WL_BLOCKER
@@ -448,20 +439,12 @@ static void wakeup_source_activate(struct wakeup_source *ws)
 {
 	unsigned int cec;
 
-	if ((!enable_ipa_ws && !strncmp(ws->name, "IPA_WS", 6)) ||		
-		(!enable_wlan_wake &&
-                        !strncmp(ws->name, "wlan_wake", 9)) ||
-		(!enable_timerfd_ws &&
-                        !strncmp(ws->name, "[timerfd]", 9)) ||
-		(!enable_netlink_ws &&
-                        !strncmp(ws->name, "NETLINK", 7)) ||
-		(!enable_netmgr_wl_ws &&
-                        !strncmp(ws->name, "netmgr_wl", 9))) {
+	if (!enable_ipa_ws && !strncmp(ws->name, "IPA_WS", 6)) {
 		if (ws->active)
 			wakeup_source_deactivate(ws);
 
 		return;
-}
+	}
 
 	/*
 	 * active wakeup source should bring the system

@@ -22,10 +22,6 @@
 #include "power.h"
 #include <soc/qcom/htc_util.h>
 
-static bool enable_ipa_ws = false;
-module_param(enable_ipa_ws, bool, 0644);
-
-
 #ifdef CONFIG_BOEFFLA_WL_BLOCKER
 #include "boeffla_wl_blocker.h"
 
@@ -35,7 +31,6 @@ bool wl_blocker_debug = false;
 
 static void wakeup_source_deactivate(struct wakeup_source *ws);
 #endif
-
 
 /*
  * If set, the suspend/hibernate code will abort transitions to a sleep state
@@ -439,13 +434,6 @@ static void wakeup_source_activate(struct wakeup_source *ws)
 {
 	unsigned int cec;
 
-	if (!enable_ipa_ws && !strncmp(ws->name, "IPA_WS", 6)) {
-		if (ws->active)
-			wakeup_source_deactivate(ws);
-
-		return;
-	}
-
 	/*
 	 * active wakeup source should bring the system
 	 * out of PM_SUSPEND_FREEZE state
@@ -605,7 +593,6 @@ static void update_prevent_sleep_time(struct wakeup_source *ws, ktime_t now)
 static inline void update_prevent_sleep_time(struct wakeup_source *ws,
 					     ktime_t now) {}
 #endif
-
 
 /**
  * wakup_source_deactivate - Mark given wakeup source as inactive.

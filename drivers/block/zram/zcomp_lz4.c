@@ -15,7 +15,7 @@
 
 #include "zcomp_lz4.h"
 
-static void *zcomp_lz4_create(gfp_t flags)
+static void *zcomp_lz4_create(void)
 {
 	void *ret;
 
